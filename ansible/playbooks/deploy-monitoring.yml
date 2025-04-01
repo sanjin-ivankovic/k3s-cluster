@@ -1,0 +1,32 @@
+---
+# Deploy Prometheus and Grafana on K3s Cluster
+- name: Deploy Prometheus and Grafana monitoring stack
+  hosts: master
+  become: false
+  vars_files:
+    - '../group_vars/all.yml'
+    - '../group_vars/master.yml'
+    - '../group_vars/secure.yml'
+  pre_tasks:
+    - name: Check if Longhorn is deployed
+      ansible.builtin.command: kubectl get sc longhorn -o jsonpath='{.metadata.name}'
+      register: longhorn_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Verify Longhorn availability
+      ansible.builtin.fail:
+        msg: |
+          Longhorn storage class not found. Please deploy Longhorn first using:
+          ansible-playbook playbooks/deploy-storage.yml
+      when: longhorn_check.rc != 0 or longhorn_check.stdout != "longhorn"
+
+    - name: Confirm Longhorn is ready
+      ansible.builtin.debug:
+        msg: '✅ Longhorn storage class found, proceeding with monitoring deployment'
+      when: longhorn_check.rc == 0 and longhorn_check.stdout == "longhorn"
+
+  roles:
+    - monitoring
+  tags:
+    - monitoring

@@ -1,0 +1,101 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: monitoring
+  annotations:
+    {% if use_traefik_ingress | default(true) %}
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {% else %}
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {% endif %}
+spec:
+  tls:
+  - hosts:
+    - {{ grafana_subdomain }}.{{ monitoring_domain }}
+    secretName: {{ monitoring_tls_secret }}
+  rules:
+  - host: {{ grafana_subdomain }}.{{ monitoring_domain }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kube-prometheus-stack-grafana
+            port:
+              number: 80
+---
+{% if enable_alertmanager | bool %}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  annotations:
+    {% if use_traefik_ingress | default(true) %}
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {% else %}
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {% endif %}
+spec:
+  tls:
+  - hosts:
+    - {{ alertmanager_subdomain }}.{{ monitoring_domain }}
+    secretName: alertmanager-tls
+  rules:
+  - host: {{ alertmanager_subdomain }}.{{ monitoring_domain }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kube-prometheus-stack-alertmanager
+            port:
+              number: 9093
+{% endif %}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus
+  namespace: monitoring
+  annotations:
+    {% if use_traefik_ingress | default(true) %}
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {% else %}
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {% endif %}
+spec:
+  tls:
+  - hosts:
+    - {{ prometheus_subdomain }}.{{ monitoring_domain }}
+    secretName: prometheus-tls
+  rules:
+  - host: {{ prometheus_subdomain }}.{{ monitoring_domain }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kube-prometheus-stack-prometheus
+            port:
+              number: 9090

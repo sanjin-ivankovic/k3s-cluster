@@ -1,0 +1,29 @@
+# Example variable values for K3s cluster
+# Copy this file to terraform.tfvars and adjust values as needed
+
+# Proxmox configuration
+proxmox_node = "pve"
+
+# Cluster configuration
+cluster_name = "k3s-homelab"
+control_plane_count = 1
+worker_count = 2
+
+# VM configuration
+vm_image = "ubuntu-cloud-20.04"
+vm_memory = 4096
+vm_cpu = 2
+vm_disk_size = 40
+ssh_key_file = "~/.ssh/id_rsa.pub"
+
+# Network configuration
+network_name = "vmbr0"
+network_cidr = "192.168.1.0/24"
+create_network = false
+enable_firewall = true
+
+# Integration
+inventory_path = "../ansible"
+
+# Tags
+owner_tag = "homelab-admin"

@@ -1,0 +1,11 @@
+---
+# Deploy or manage certificates with cert-manager
+- name: Deploy cert-manager and configure certificates
+  hosts: master
+  become: false
+  vars_files:
+    - '../group_vars/all.yml'
+    - '../group_vars/master.yml'
+    - '../group_vars/secure.yml'
+  roles:
+    - cert_manager

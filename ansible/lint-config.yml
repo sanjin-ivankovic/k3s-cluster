@@ -1,0 +1,26 @@
+---
+# Configuration file for ansible-lint
+
+# Exclude these paths from linting
+exclude_paths:
+  - .cache/
+  - .git/
+
+# List of additional rules directories
+rulesdir:
+  - ~/.ansible/lint-rules/
+
+# These rules will be skipped
+skip_list:
+  - no-changed-when # Known false positives with command module
+
+# These rules will warn but not fail
+warn_list:
+  - command-instead-of-module # Using command instead of specific modules
+  - no-handler # Tasks that notify but have no matching handler
+
+# Only run specific tags
+tags:
+  - formatting
+  - safety
+  - idempotency

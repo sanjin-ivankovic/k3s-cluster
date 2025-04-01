@@ -1,0 +1,15 @@
+---
+# Variables that apply to all master nodes
+k3s_server_args:
+  - '--disable=traefik'
+  - '--disable=servicelb'
+  - '--kube-apiserver-arg=feature-gates=MixedProtocolLBService=true'
+
+# Ensure this matches your network configuration
+metallb_addresses: '10.0.0.200-10.0.0.220'
+
+# Cert-manager and Cloudflare configuration
+cert_manager_email: 'admin@phizio.net'
+cloudflare_email: 'admin@phizio.net'
+cloudflare_domain: 'phizio.net'
+cloudflare_api_token: '' # Token should be defined in secure.yml

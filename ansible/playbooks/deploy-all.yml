@@ -1,0 +1,33 @@
+---
+# Deploy complete K3s cluster with all components
+
+# 1. Base infrastructure deployment
+- name: Deploy K3s Cluster (Base Setup)
+  import_playbook: deploy-k3s.yml
+  # This creates the cluster with:
+  # - K3s control plane and worker nodes
+  # - MetalLB for load balancing
+
+# 2. Cert-Manager deployment
+- name: Deploy Cert-Manager
+  import_playbook: deploy-cert-manager.yml
+
+# 3. Storage layer deployment
+- name: Deploy Longhorn Storage
+  import_playbook: deploy-storage.yml
+
+# 4. Ingress controller deployment
+- name: Deploy Traefik Ingress Controller
+  import_playbook: deploy-traefik.yml
+
+# 5. Monitoring and observability
+- name: Deploy Monitoring Stack
+  import_playbook: deploy-monitoring.yml
+
+# 6. Management platform
+- name: Deploy Rancher Management Platform
+  import_playbook: deploy-rancher.yml
+
+# 7. Validate the deployment
+- name: Validate Complete Deployment
+  import_playbook: validate-deployment.yml

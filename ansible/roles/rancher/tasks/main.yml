@@ -1,0 +1,86 @@
+---
+# 1. Setup Helm repository
+- name: Add Rancher Helm repository
+  ansible.builtin.command: helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
+  become: false
+  changed_when: false
+
+- name: Update Helm repositories
+  ansible.builtin.command: helm repo update
+  become: false
+  changed_when: false
+
+# 2. Create namespace and prepare configuration
+# Create namespace for Rancher
+- name: Create Rancher namespace
+  ansible.builtin.shell: kubectl create namespace cattle-system --dry-run=client -o yaml | kubectl apply -f -
+  become: false
+  changed_when: false
+
+# Create values file for Rancher from template
+- name: Create Rancher values file
+  ansible.builtin.template:
+    src: rancher-values.yaml.j2
+    dest: /tmp/rancher-values.yaml
+    mode: '0644'
+  become: false
+
+# 3. Verify prerequisites
+# Check for wildcard certificate readiness
+- name: Verify wildcard certificate is available
+  ansible.builtin.shell: |
+    kubectl get certificate {{ cert_manager_certificate_name | default('phizio-wildcard-cert') }} \
+    -n {{ cert_manager_certificate_namespace | default('default') }} \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  register: cert_check
+  until: cert_check.stdout == "True"
+  retries: 5
+  delay: 10
+  become: false
+  changed_when: false
+  failed_when: false
+
+- name: Warn if wildcard certificate is not ready
+  ansible.builtin.debug:
+    msg: "WARNING: Wildcard certificate doesn't appear to be ready. Rancher might not have valid TLS."
+  when: cert_check.stdout != "True"
+
+# 4. Deploy Rancher
+# Install Rancher
+- name: Install Rancher
+  ansible.builtin.command: >
+    helm upgrade --install rancher rancher-stable/rancher
+    --namespace cattle-system
+    --values /tmp/rancher-values.yaml
+    --timeout 600s
+    --wait
+  become: false
+  register: rancher_install
+  changed_when: rancher_install.rc == 0
+
+# 5. Verify deployment
+# Wait for Rancher to be ready
+- name: Wait for Rancher deployment
+  ansible.builtin.shell: |
+    kubectl -n cattle-system rollout status deploy/rancher
+  register: rancher_status
+  until: rancher_status.rc == 0
+  retries: 15
+  delay: 20
+  become: false
+  changed_when: false
+
+# 6. Display access information
+# Output access information
+- name: Get Rancher access information
+  ansible.builtin.shell: |
+    echo "Rancher dashboard URL: https://{{ rancher_hostname | default('rancher.' + cloudflare_domain) }}"
+    echo "Initial bootstrap password can be retrieved with:"
+    echo "kubectl get secret --namespace cattle-system bootstrap-secret -o go-template='{{ '{{' }}.data.bootstrapPassword | base64decode{{ '}}' }}'"
+  register: rancher_info
+  become: false
+  changed_when: false
+
+- name: Display Rancher access information
+  ansible.builtin.debug:
+    msg: '{{ rancher_info.stdout_lines }}'

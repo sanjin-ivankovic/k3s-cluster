@@ -1,0 +1,31 @@
+---
+- name: Validate K3s cluster deployment
+  hosts: master
+  become: false
+  tasks:
+    - name: Check nodes are ready
+      ansible.builtin.shell: kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}'
+      register: nodes_ready
+      failed_when: "'False' in nodes_ready.stdout or nodes_ready.stdout | length == 0"
+
+    - name: Check core pods are running
+      ansible.builtin.shell: |
+        kubectl get pods --all-namespaces -o jsonpath='{.items[*].status.phase}' | tr ' ' '\n' | sort | uniq -c
+      register: pods_status
+      failed_when: "'Failed' in pods_status.stdout or 'Unknown' in pods_status.stdout"
+
+    - name: Check certificates are valid
+      ansible.builtin.shell: |
+        kubectl get certificate -A -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}'
+      register: certs_ready
+      failed_when: "'False' in certs_ready.stdout"
+
+    - name: Check persistent volumes
+      ansible.builtin.shell: |
+        kubectl get pv -o jsonpath='{.items[*].status.phase}'
+      register: pv_status
+      failed_when: "'Failed' in pv_status.stdout"
+
+    - name: Display deployment validation results
+      ansible.builtin.debug:
+        msg: '✅ All validation checks passed! The cluster appears to be healthy.'

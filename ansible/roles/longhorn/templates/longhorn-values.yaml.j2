@@ -1,0 +1,81 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+# Default values for longhorn.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+global:
+  cattle:
+    systemDefaultRegistry: ""
+
+image:
+  longhorn:
+    engine:
+      repository: longhornio/longhorn-engine
+      tag: {{ longhorn_version | default('v1.8.1') }}
+    manager:
+      repository: longhornio/longhorn-manager
+      tag: {{ longhorn_version | default('v1.8.1') }}
+    ui:
+      repository: longhornio/longhorn-ui
+      tag: {{ longhorn_version | default('v1.8.1') }}
+    instanceManager:
+      repository: longhornio/longhorn-instance-manager
+      tag: {{ longhorn_version | default('v1.8.1') }}
+    shareManager:
+      repository: longhornio/longhorn-share-manager
+      tag: {{ longhorn_version | default('v1.8.1') }}
+    backingImageManager:
+      repository: longhornio/backing-image-manager
+      tag: {{ longhorn_version | default('v1.8.1') }}
+
+service:
+  ui:
+    type: ClusterIP
+    nodePort: null
+
+persistence:
+  defaultClass: {{ longhorn_default_storage_class | default(true) | lower }}
+  defaultFsType: ext4
+  defaultClassReplicaCount: {{ longhorn_replica_count | default(3) }}
+  reclaimPolicy: Delete
+  recurringJobSelector:
+    enabled: false
+  backingImage:
+    enableImageRemover: true
+    imageCleanupWaitInterval: 60
+    imagePullPolicy: if-not-present
+
+defaultSettings:
+  backupTarget: {{ longhorn_backup_target | default('') }}
+  backupTargetCredentialSecret: {{ longhorn_backup_secret_name | default('') }}
+  createDefaultDiskLabeledNodes: true
+  defaultDataPath: {{ longhorn_data_path | default('/var/lib/longhorn/') }}
+  replicaSoftAntiAffinity: true
+  replicaAutoBalance: {{ longhorn_replica_auto_balance | default('best-effort') }}
+  storageOverProvisioningPercentage: {{ longhorn_over_provisioning_percentage | default(200) }}
+  storageMinimalAvailablePercentage: {{ longhorn_minimal_available_percentage | default(25) }}
+  upgradeChecker: {{ longhorn_upgrade_checker | default(true) | lower }}
+  defaultReplicaCount: {{ longhorn_replica_count | default(3) }}
+  backupstorePollInterval: {{ longhorn_backup_poll_interval | default(300) }}
+  taintToleration: {{ longhorn_toleration | default('') }}
+  guaranteedEngineManagerCPU: {{ longhorn_guaranteed_engine_cpu | default(12) }}
+  guaranteedReplicaManagerCPU: {{ longhorn_guaranteed_replica_cpu | default(12) }}
+
+longhornManager:
+  tolerations: {{ longhorn_manager_tolerations | default([]) | to_json }}
+  nodeSelector: {{ longhorn_node_selector | default({}) | to_json }}
+  priorityClass: {{ longhorn_priority_class | default('') }}
+
+longhornDriver:
+  tolerations: {{ longhorn_driver_tolerations | default([]) | to_json }}
+  nodeSelector: {{ longhorn_node_selector | default({}) | to_json }}
+  priorityClass: {{ longhorn_priority_class | default('') }}
+
+longhornUI:
+  tolerations: {{ longhorn_ui_tolerations | default([]) | to_json }}
+  nodeSelector: {{ longhorn_node_selector | default({}) | to_json }}
+  priorityClass: {{ longhorn_priority_class | default('') }}
+  replicas: {{ longhorn_ui_replicas | default(2) }}

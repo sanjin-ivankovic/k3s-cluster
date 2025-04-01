@@ -1,0 +1,16 @@
+---
+# Default issuer settings
+cert_manager_issuer_name: 'acme-clusterissuer'
+# cert_manager_acme_server: 'https://acme-v02.api.letsencrypt.org/directory'
+# Use this for testing:
+cert_manager_acme_server: 'https://acme-staging-v02.api.letsencrypt.org/directory'
+
+# Default certificate settings
+cert_manager_email: 'admin@phizio.net'
+cert_manager_certificate_name: 'phizio-wildcard-cert'
+cert_manager_certificate_namespace: 'default'
+cert_manager_tls_secret_name: 'phizio-wildcard-tls'
+
+# Other settings
+cert_manager_debug: false
+cert_manager_log_level: 2 # 0=none, 1=error, 2=info, 3=debug

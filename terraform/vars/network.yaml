@@ -1,0 +1,14 @@
+# Network configuration
+bridge: vmbr0
+vlan: null
+gateway: 10.0.0.1
+dns: 10.0.0.10
+
+# DNS configuration
+secondary_dns: 1.1.1.1
+domain: k3s.local
+
+# Time services
+ntp_servers:
+  - pool.ntp.org
+  - time.google.com

@@ -1,0 +1,157 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+# kube-prometheus-stack values
+fullnameOverride: kube-prometheus-stack
+
+# Global settings
+global:
+  rbac:
+    create: true
+  evaluation_interval: 1m
+  scrape_interval: 15s
+
+# Alertmanager configuration
+alertmanager:
+  enabled: {{ enable_alertmanager | lower }}
+  {% if enable_alertmanager | bool %}
+  service:
+    type: {{ alertmanager_service_type }}
+  persistence:
+    enabled: true
+    storageClassName: {{ storage_class_name }}
+    size: {{ alertmanager_storage_size }}
+  {% endif %}
+
+# Grafana configuration
+grafana:
+  enabled: true
+  adminUser: {{ grafana_admin_user }}
+  adminPassword: {{ grafana_admin_password }}
+  service:
+    type: {{ grafana_service_type }}
+    {% if grafana_service_type == "LoadBalancer" %}
+    loadBalancerIP: {{ grafana_service_ip }}
+    {% endif %}
+  persistence:
+    enabled: true
+    storageClassName: {{ storage_class_name }}
+    size: {{ grafana_storage_size }}
+  plugins: {{ grafana_plugins | to_json }}
+  nodeSelector: {{ grafana_node_selector | to_json }}
+  resources: {{ grafana_resources | to_json }}
+
+  # Dashboards configuration
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  # Default dashboards
+  dashboards:
+    default:
+      kubernetes-cluster:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+      kubernetes-pods:
+        gnetId: 6417
+        revision: 1
+        datasource: Prometheus
+      node-exporter-full:
+        gnetId: 1860
+        revision: 27
+        datasource: Prometheus
+      {% if custom_dashboards is defined %}
+      {% for dashboard in custom_dashboards %}
+      {{ dashboard }}:
+        file: /tmp/dashboards/{{ dashboard }}.json
+      {% endfor %}
+      {% endif %}
+
+# Prometheus configuration
+prometheus:
+  enabled: true
+  service:
+    type: {{ prometheus_service_type }}
+  prometheusSpec:
+    retention: {{ prometheus_retention_time }}
+    retentionSize: {{ prometheus_retention_size }}
+    nodeSelector: {{ prometheus_node_selector | to_json }}
+    resources: {{ prometheus_resources | to_json }}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: {{ storage_class_name }}
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: {{ prometheus_storage_size }}
+    additionalScrapeConfigs:
+      - job_name: 'kubernetes-pods-custom'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+# Node exporter configuration
+nodeExporter:
+  enabled: {{ enable_node_exporter | lower }}
+
+# Kube state metrics configuration
+kubeStateMetrics:
+  enabled: true
+
+# Prometheus Pushgateway
+prometheusOperator:
+  enabled: true
+  admissionWebhooks:
+    enabled: true
+    failurePolicy: Ignore
+
+pushgateway:
+  enabled: {{ enable_prometheus_pushgateway | lower }}
+
+# Kubernetes API server monitoring
+kubeApiServer:
+  enabled: true
+
+# Kubernetes Controller Manager monitoring
+kubeControllerManager:
+  enabled: true
+
+# Kubernetes Scheduler monitoring
+kubeScheduler:
+  enabled: true
+
+# etcd monitoring
+kubeEtcd:
+  enabled: true

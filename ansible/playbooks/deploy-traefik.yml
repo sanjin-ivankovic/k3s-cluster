@@ -1,0 +1,27 @@
+---
+# Deploy Traefik on K3s Cluster
+- name: Deploy Traefik on K3s Cluster
+  hosts: master
+  become: false
+  vars_files:
+    - '../group_vars/all.yml'
+    - '../group_vars/master.yml'
+    - '../group_vars/secure.yml'
+  pre_tasks:
+    - name: Check if cert-manager is deployed
+      ansible.builtin.shell: |
+        kubectl get clusterissuer {{ cert_manager_issuer_name | default('acme-clusterissuer') }} -o name
+      register: cert_issuer_check
+      ignore_errors: true
+      changed_when: false
+      failed_when: false
+
+    - name: Display warning if cert-manager prerequisites aren't met
+      ansible.builtin.debug:
+        msg: 'Warning: ClusterIssuer not found. TLS certificates may not work properly.'
+      when: cert_issuer_check.rc != 0
+
+  roles:
+    - traefik
+  tags:
+    - traefik

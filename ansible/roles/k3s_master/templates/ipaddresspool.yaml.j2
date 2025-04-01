@@ -1,0 +1,14 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: default
+  namespace: metallb-system
+spec:
+  addresses:
+    - {{ metallb_addresses }}
+  autoAssign: true
+  avoidBuggyIPs: true

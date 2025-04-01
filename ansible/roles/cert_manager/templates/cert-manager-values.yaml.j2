@@ -1,0 +1,63 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+# Basic configuration for cert-manager
+installCRDs: true
+
+# Extra arguments for the cert-manager controllers
+extraArgs:
+  - --dns01-recursive-nameservers-only
+  - --dns01-recursive-nameservers=1.1.1.1:53,1.0.0.1:53
+
+# You can uncomment and modify these if you need to use custom images
+# image:
+#   repository: quay.io/jetstack/cert-manager-controller
+#   tag: {{ cert_manager_version }}
+# webhook:
+#   image:
+#     repository: quay.io/jetstack/cert-manager-webhook
+#     tag: {{ cert_manager_version }}
+# cainjector:
+#   image:
+#     repository: quay.io/jetstack/cert-manager-cainjector
+#     tag: {{ cert_manager_version }}
+
+# Pod resource settings
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+# Webhook configuration
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# CA injector configuration
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# Prometheus metrics
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: false
+
+# Global settings
+global:
+  logLevel: 2  # Info level logging

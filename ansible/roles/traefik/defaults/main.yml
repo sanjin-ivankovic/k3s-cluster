@@ -1,0 +1,36 @@
+---
+# Set to a specific IP from your MetalLB range to have a consistent IP
+traefik_ip_address: '10.0.0.200'
+
+# Dashboard configuration
+traefik_dashboard_enabled: true
+traefik_dashboard_tls_enabled: true
+traefik_dashboard_tls_secret: 'traefik-web-ui-tls'
+traefik_dashboard_cert_name: 'traefik-web-ui-cert'
+# Automatically uses cloudflare_domain if not specified
+# traefik_dashboard_hostname: 'traefik.phizio.net'
+
+# Dashboard security with middleware (uncomment to enable)
+# traefik_dashboard_middlewares:
+#   - traefik-web-ui-middleware
+
+# Extra command line arguments for Traefik
+traefik_additionalArguments:
+  - '--log.level=INFO'
+  - '--api.dashboard=true'
+  - '--api.insecure=false'
+  - '--api.disabledashboardad=true'
+  - '--global.checkNewVersion=false'
+  - '--global.sendAnonymousUsage=false'
+  - '--providers.kubernetescrd'
+  - '--providers.kubernetesingress'
+
+# Resource limits
+# Consider increasing these for production
+traefik_resources:
+  requests:
+    cpu: '200m' # Increased from 100m
+    memory: '256Mi' # Increased from 128Mi
+  limits:
+    cpu: '500m' # Increased from 300m
+    memory: '512Mi' # Increased from 256Mi

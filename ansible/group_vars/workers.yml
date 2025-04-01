@@ -1,0 +1,3 @@
+---
+# Variables that apply to all worker nodes
+k3s_worker_args: []

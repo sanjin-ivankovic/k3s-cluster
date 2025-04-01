@@ -1,0 +1,134 @@
+---
+# 1. Setup Helm repository
+- name: Add Longhorn Helm repository
+  ansible.builtin.command: helm repo add longhorn https://charts.longhorn.io
+  become: false
+  changed_when: false
+
+- name: Update Helm repositories
+  ansible.builtin.command: helm repo update
+  become: false
+  changed_when: false
+
+# 2. Create namespace and prepare configuration
+# Create namespace for Longhorn
+- name: Create Longhorn namespace
+  ansible.builtin.shell: kubectl create namespace longhorn-system --dry-run=client -o yaml | kubectl apply -f -
+  become: false
+  changed_when: false
+
+# Create the values file for Longhorn
+- name: Create Longhorn values file
+  ansible.builtin.template:
+    src: longhorn-values.yaml.j2
+    dest: /tmp/longhorn-values.yaml
+    mode: '0644'
+  become: false
+
+# 3. Deploy Longhorn
+# Install Longhorn
+- name: Install Longhorn
+  ansible.builtin.command: >
+    helm upgrade --install longhorn longhorn/longhorn
+    --namespace longhorn-system
+    --values /tmp/longhorn-values.yaml
+    --timeout 600s
+    --wait
+  become: false
+  register: longhorn_install
+  changed_when: longhorn_install.rc == 0
+
+# 4. Verify deployment
+# First perform a quick check if Longhorn components are already available
+- name: Quick check if Longhorn is already deployed and ready
+  ansible.builtin.shell: |
+    # Check all required components in one command
+    COMPONENTS_READY=0
+    UI_READY=$(kubectl get deployment/longhorn-ui -n longhorn-system -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+    MANAGER_READY=$(kubectl get daemonset/longhorn-manager -n longhorn-system -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+    DRIVER_READY=$(kubectl get deployment/longhorn-driver-deployer -n longhorn-system -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+
+    # Check if all components have at least one replica ready
+    if [ "$UI_READY" -gt 0 ] && [ "$MANAGER_READY" -gt 0 ] && [ "$DRIVER_READY" -gt 0 ]; then
+      echo "All Longhorn components are already running"
+      exit 0
+    else
+      echo "Some Longhorn components are not ready yet"
+      exit 1
+    fi
+  register: longhorn_ready_check
+  changed_when: false
+  failed_when: false
+  become: false
+
+# Only wait with long timeout if the quick check failed
+- name: Wait for Longhorn components to be ready
+  ansible.builtin.shell: |
+    # Wait with a shorter timeout since we only need to wait if components are starting up
+    kubectl wait --for=condition=available deployment/longhorn-ui -n longhorn-system --timeout=180s
+    kubectl wait --for=condition=available daemonset/longhorn-manager -n longhorn-system --timeout=180s
+    kubectl wait --for=condition=available deployment/longhorn-driver-deployer -n longhorn-system --timeout=180s
+  register: longhorn_ready
+  until: longhorn_ready.rc == 0
+  retries: 10
+  delay: 15
+  become: false
+  failed_when: false
+  changed_when: false
+  when: longhorn_ready_check.rc != 0 and longhorn_install is changed
+
+# Additional verification for v1.8.1 specific components - only run if previous checks failed
+- name: Verify Longhorn CSI components are running
+  ansible.builtin.shell: |
+    kubectl get pods -n longhorn-system -l app=csi-provisioner -o jsonpath='{.items[*].status.phase}' | grep -q Running
+    kubectl get pods -n longhorn-system -l app=csi-attacher -o jsonpath='{.items[*].status.phase}' | grep -q Running
+    kubectl get pods -n longhorn-system -l app=csi-resizer -o jsonpath='{.items[*].status.phase}' | grep -q Running
+  register: longhorn_csi_check
+  until: longhorn_csi_check.rc == 0
+  retries: 6
+  delay: 10
+  become: false
+  failed_when: false
+  changed_when: false
+  when: >
+    longhorn_ready_check is defined and
+    longhorn_ready_check.rc is defined and
+    longhorn_ready_check.rc != 0 and
+    longhorn_install is defined and
+    longhorn_install is changed
+
+# Display Longhorn deployment status
+- name: Show Longhorn deployment status
+  ansible.builtin.debug:
+    msg: "Longhorn status: {{ 'Ready' if (longhorn_ready_check is defined and longhorn_ready_check.rc is defined and longhorn_ready_check.rc == 0) or (longhorn_ready is defined and longhorn_ready.rc is defined and longhorn_ready.rc == 0) else 'Not ready after timeout' }}"
+
+# 5. Configure ingress access
+# Create ingress resources for Longhorn UI if enabled
+- name: Create Longhorn UI ingress configuration
+  ansible.builtin.template:
+    src: longhorn-ingress.yaml.j2
+    dest: /tmp/longhorn-ingress.yaml
+    mode: '0644'
+  become: false
+  vars:
+    domain: "{{ cloudflare_domain | default('phizio.net') }}"
+  when: longhorn_ui_ingress_enabled | default(true) | bool
+
+- name: Apply Longhorn UI ingress
+  ansible.builtin.command: kubectl apply -f /tmp/longhorn-ingress.yaml
+  become: false
+  when: longhorn_ui_ingress_enabled | default(true) | bool
+  changed_when: true
+
+# 6. Configure storage class
+# Set Longhorn as the default storage class
+- name: Make Longhorn the default storage class
+  ansible.builtin.shell: |
+    # Remove default from any existing storage classes
+    kubectl get sc -o name | xargs -I {} kubectl patch {} -p '{"metadata": {"annotations": {"storageclass.kubernetes.io/is-default-class": "false"}}}'
+
+    # Set Longhorn as the default
+    kubectl patch storageclass longhorn -p '{"metadata": {"annotations": {"storageclass.kubernetes.io/is-default-class": "true"}}}'
+  become: false
+  changed_when: true
+  when: longhorn_default_storage_class | default(true) | bool

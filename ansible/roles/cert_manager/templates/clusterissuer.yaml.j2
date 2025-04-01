@@ -1,0 +1,22 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ cert_manager_issuer_name | default('acme-clusterissuer') }}
+  annotations:
+    managed-by: ansible
+spec:
+  acme:
+    email: {{ cert_manager_email | default('admin@' + cloudflare_domain) }}
+    server: {{ cert_manager_acme_server | default('https://acme-v02.api.letsencrypt.org/directory') }}
+    privateKeySecretRef:
+      name: {{ cert_manager_issuer_name | default('acme-clusterissuer') }}-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secret
+              key: api-token

@@ -1,0 +1,28 @@
+# Example backend configuration for Terraform state
+# Copy this file to your Terraform root directory as backend.tf and modify as needed
+
+terraform {
+  backend "s3" {
+    # MinIO configuration
+    endpoint                    = "http://192.168.1.100:9000"  # Update with your MinIO server address
+    bucket                      = "terraform-state"
+    key                         = "k3s-cluster/terraform.tfstate"
+    region                      = "us-east-1"  # Can be any value for MinIO
+
+    # Authentication
+    access_key                  = "minioadmin"  # Replace with your access key
+    secret_key                  = "minioadmin"  # Replace with your secret key
+
+    # Required for MinIO
+    force_path_style            = true
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
+
+    # State locking using DynamoDB is optional for home labs
+    # If you want to implement it, you can use:
+    # dynamodb_table             = "terraform-lock"
+    # dynamodb_endpoint          = "http://192.168.1.100:8000"
+  }
+}

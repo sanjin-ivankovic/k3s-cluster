@@ -1,0 +1,27 @@
+---
+# Storage settings
+longhorn_replica_count: 3
+longhorn_data_path: '/var/lib/longhorn/'
+longhorn_replica_auto_balance: 'best-effort'
+longhorn_over_provisioning_percentage: 200
+longhorn_minimal_available_percentage: 25
+longhorn_default_storage_class: true
+
+# Backup settings
+longhorn_backup_target: ''
+longhorn_backup_secret_name: ''
+longhorn_backup_poll_interval: 300
+longhorn_upgrade_checker: true
+
+# Resource settings
+longhorn_guaranteed_engine_cpu: 12
+longhorn_guaranteed_replica_cpu: 12
+longhorn_node_selector: {}
+longhorn_ui_replicas: 1
+
+# Ingress settings
+longhorn_ui_ingress_enabled: true
+longhorn_ui_subdomain: 'longhorn'
+
+# Domain settings - default from global variable if defined, otherwise use fallback
+cloudflare_domain: "{{ hostvars[inventory_hostname]['cloudflare_domain'] | default('phizio.net') }}"

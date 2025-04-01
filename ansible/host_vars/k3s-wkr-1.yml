@@ -1,0 +1,15 @@
+---
+# Host-specific settings for worker node 1
+node_labels:
+  role: worker
+  workload: general
+  environment: production
+
+# Optional: Node-specific taints (if needed)
+# node_taints:
+#   - "dedicated=workload:NoSchedule"
+
+# Optional: Worker-specific resource configurations
+system_settings:
+  vm.max_map_count: 262144
+  fs.file-max: 65536

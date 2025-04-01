@@ -1,0 +1,20 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+# MetalLB Helm chart values - simplified for v0.14.x
+controller:
+  nodeSelector:
+    kubernetes.io/os: linux
+  logLevel: info
+
+speaker:
+  nodeSelector:
+    kubernetes.io/os: linux
+  logLevel: info
+  frr:
+    enabled: false
+
+# Enable CRDs installation
+crds:
+  enabled: true

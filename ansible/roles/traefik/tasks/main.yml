@@ -1,0 +1,183 @@
+---
+# 1. Setup Helm repository
+- name: Add Traefik Helm repository
+  ansible.builtin.command: helm repo add traefik https://traefik.github.io/charts
+  become: false
+  changed_when: false
+
+- name: Update Helm repositories
+  ansible.builtin.command: helm repo update
+  become: false
+  changed_when: false
+
+# 2. Create namespace and prepare configuration
+- name: Create Traefik namespace
+  ansible.builtin.shell: kubectl create namespace traefik --dry-run=client -o yaml | kubectl apply -f -
+  become: false
+  changed_when: false
+
+- name: Create Traefik values file
+  ansible.builtin.template:
+    src: traefik-values.yaml.j2
+    dest: /tmp/traefik-values.yaml
+    mode: '0644'
+  become: false
+
+# 3. Deploy Traefik with a two-stage approach
+- name: Install Traefik (without wait)
+  ansible.builtin.command: >
+    helm upgrade --install traefik traefik/traefik
+    --namespace traefik
+    --values /tmp/traefik-values.yaml
+    --timeout 300s
+  become: false
+  register: traefik_install
+  changed_when: traefik_install.rc == 0
+
+# 4. Wait for deployment and verify
+- name: Wait for Traefik deployment to be ready
+  ansible.builtin.shell: |
+    kubectl rollout status deployment/traefik -n traefik --timeout=180s
+  become: false
+  changed_when: false
+
+# 5. Configure service IP if specified
+- name: Update Traefik service with specific IP if defined
+  ansible.builtin.shell: |
+    kubectl patch service traefik -n traefik -p '{"spec":{"loadBalancerIP":"{{ traefik_ip_address }}"}}'
+  become: false
+  changed_when: true
+  when: traefik_ip_address is defined
+
+# 6. Wait for service to be ready with better error handling
+- name: Wait for Traefik service to get an external IP
+  ansible.builtin.shell: |
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      IP=$(kubectl get service traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+      if [ -n "$IP" ]; then
+        echo "External IP assigned: $IP"
+        echo "$IP" > /tmp/traefik_ip_address
+        exit 0
+      else
+        echo "Waiting for external IP assignment (attempt $i/12)..."
+        sleep 10
+      fi
+    done
+    echo "ERROR: IP address assignment timed out. Check MetalLB configuration."
+    exit 1
+  become: false
+  register: traefik_ip_wait
+  failed_when: traefik_ip_wait.rc != 0
+  changed_when: false
+  args:
+    executable: /bin/bash
+
+# Add verification task to confirm MetalLB is working properly
+- name: Verify MetalLB configuration if no external IP was assigned
+  ansible.builtin.shell: |
+    # Check if MetalLB is properly installed
+    echo "Checking MetalLB deployment status..."
+    kubectl get pods -n metallb-system
+
+    # Check the address pool configuration
+    echo "Checking MetalLB address pools..."
+    kubectl get ipaddresspools.metallb.io -n metallb-system -o yaml
+
+    # Check Traefik service details
+    echo "Checking Traefik service details..."
+    kubectl describe svc traefik -n traefik
+
+    # Check for any events that might indicate the issue
+    echo "Checking relevant events..."
+    kubectl get events -n metallb-system --sort-by=.metadata.creationTimestamp | tail -n 20
+    kubectl get events -n traefik --sort-by=.metadata.creationTimestamp | tail -n 20
+  become: false
+  register: metallb_check
+  when: "'/tmp/traefik_ip_address' is not file"
+  changed_when: false
+  failed_when: false
+
+- name: Display MetalLB troubleshooting information
+  ansible.builtin.debug:
+    msg: '{{ metallb_check.stdout_lines }}'
+  when: metallb_check is changed
+
+# 7. Add task to copy wildcard certificate to Traefik namespace
+- name: Copy wildcard certificate to Traefik namespace if needed
+  ansible.builtin.shell: |
+    CERT_NAMESPACE="{{ cert_manager_certificate_namespace | default('default') }}"
+    CERT_SECRET="{{ cert_manager_tls_secret_name | default('phizio-wildcard-tls') }}"
+
+    # Only copy if certificate exists in source namespace but not in traefik namespace
+    if kubectl get secret -n $CERT_NAMESPACE $CERT_SECRET -o name >/dev/null 2>&1; then
+      if ! kubectl get secret -n traefik $CERT_SECRET -o name >/dev/null 2>&1; then
+        kubectl get secret -n $CERT_NAMESPACE $CERT_SECRET -o yaml | \
+          sed 's/namespace: '$CERT_NAMESPACE'/namespace: traefik/' | \
+          kubectl apply -f -
+        echo "Certificate copied to traefik namespace"
+        exit 0
+      fi
+    fi
+    echo "No action needed for certificate"
+    exit 0
+  become: false
+  register: copy_cert
+  changed_when: "'Certificate copied to traefik namespace' in copy_cert.stdout"
+  when: traefik_dashboard_enabled | default(true) | bool
+  args:
+    executable: /bin/bash
+
+# 8. Configure dashboard access (continue only if IP was assigned)
+- name: Create Traefik dashboard ingress configuration
+  ansible.builtin.template:
+    src: ingress-dashboard.yaml.j2
+    dest: /tmp/traefik-ingress-dashboard.yaml
+    mode: '0644'
+  become: false
+  vars:
+    # Pass the certificate variables explicitly
+    cert_manager_issuer_name: "{{ cert_manager_issuer_name | default('acme-clusterissuer') }}"
+    cert_manager_tls_secret_name: "{{ cert_manager_tls_secret_name | default('phizio-wildcard-tls') }}"
+  when: "'/tmp/traefik_ip_address' is file and traefik_dashboard_enabled | default(true) | bool"
+
+- name: Apply Traefik dashboard ingress
+  ansible.builtin.command: kubectl apply -f /tmp/traefik-ingress-dashboard.yaml
+  become: false
+  when: "'/tmp/traefik_ip_address' is file and traefik_dashboard_enabled | default(true) | bool"
+  changed_when: true
+
+# 9. Create dashboard certificate if needed
+- name: Create Traefik dashboard certificate
+  ansible.builtin.template:
+    src: certificate.yaml.j2
+    dest: /tmp/traefik-certificate.yaml
+    mode: '0644'
+  become: false
+  when: traefik_dashboard_enabled | default(true) | bool and traefik_dashboard_tls_enabled | default(true) | bool
+
+- name: Apply Traefik dashboard certificate
+  ansible.builtin.command: kubectl apply -f /tmp/traefik-certificate.yaml
+  become: false
+  when: traefik_dashboard_enabled | default(true) | bool and traefik_dashboard_tls_enabled | default(true) | bool
+  changed_when: true
+
+# 10. Display access information with improved error handling
+- name: Get Traefik service information
+  ansible.builtin.shell: |
+    IP=$(kubectl get service traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+    if [ -n "$IP" ]; then
+      echo "Traefik service IP: $IP"
+      echo "Dashboard URL: https://{{ traefik_dashboard_hostname | default('traefik.' + cloudflare_domain) }}"
+    else
+      echo "WARNING: Traefik has no external IP assigned! Check MetalLB configuration."
+      echo "Dashboard URL: https://{{ traefik_dashboard_hostname | default('traefik.' + cloudflare_domain) }} (Unavailable until IP is assigned)"
+    fi
+  register: traefik_info
+  become: false
+  changed_when: false
+  args:
+    executable: /bin/bash
+
+- name: Display Traefik information
+  ansible.builtin.debug:
+    msg: '{{ traefik_info.stdout_lines }}'

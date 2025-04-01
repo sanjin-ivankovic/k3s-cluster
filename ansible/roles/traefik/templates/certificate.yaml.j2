@@ -1,0 +1,16 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ traefik_dashboard_cert_name | default('traefik-web-ui-cert') }}
+  namespace: traefik
+spec:
+  secretName: {{ traefik_dashboard_tls_secret | default('traefik-web-ui-tls') }}
+  dnsNames:
+    - {{ traefik_dashboard_hostname | default('traefik.' + cloudflare_domain) }}
+  issuerRef:
+    name: {{ cert_manager_issuer_name | default('acme-clusterissuer') }}
+    kind: ClusterIssuer

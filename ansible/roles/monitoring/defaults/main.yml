@@ -1,0 +1,73 @@
+---
+# Prometheus-Operator Helm chart version
+kube_prometheus_stack_version: '70.3.0'
+
+# Storage configuration for persistent volumes
+prometheus_storage_size: '10Gi'
+prometheus_retention_time: '7d'
+prometheus_retention_size: '5GB'
+grafana_storage_size: '2Gi'
+alertmanager_storage_size: '2Gi'
+storage_class_name: 'longhorn'
+
+# Enable/disable components
+enable_alertmanager: true
+enable_node_exporter: true
+enable_prometheus_pushgateway: false
+
+# Service configurations
+grafana_service_type: ClusterIP
+grafana_service_ip: '10.0.0.54'
+prometheus_service_type: ClusterIP
+alertmanager_service_type: ClusterIP
+
+# Grafana settings
+grafana_admin_user: 'admin'
+grafana_admin_password: 'changeme' # Override in secure.yml
+grafana_plugins:
+  - 'grafana-piechart-panel'
+  - 'grafana-clock-panel'
+
+# Default dashboards to install
+grafana_dashboards:
+  - kubernetes-cluster
+  - kubernetes-pods
+  - node-exporter-full
+
+# Custom dashboards to include
+custom_dashboards:
+  - k3s-cluster-overview
+
+# NodeSelector settings
+prometheus_node_selector:
+  kubernetes.io/os: linux
+grafana_node_selector:
+  kubernetes.io/os: linux
+
+# Resource requests and limits
+prometheus_resources:
+  requests:
+    memory: '1Gi'
+    cpu: '500m'
+  limits:
+    memory: '2Gi'
+    cpu: '1000m'
+
+grafana_resources:
+  requests:
+    memory: '256Mi'
+    cpu: '100m'
+  limits:
+    memory: '512Mi'
+    cpu: '200m'
+
+# Ingress configuration
+enable_monitoring_ingress: true
+monitoring_domain: '{{ cloudflare_domain }}'
+grafana_subdomain: 'grafana'
+prometheus_subdomain: 'prometheus'
+alertmanager_subdomain: 'alertmanager'
+monitoring_tls_secret: 'monitoring-tls'
+
+# Traefik configuration
+use_traefik_ingress: true

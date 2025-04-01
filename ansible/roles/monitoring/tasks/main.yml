@@ -1,0 +1,113 @@
+---
+# 1. Setup Helm repository
+- name: Add kube-prometheus-stack Helm repository
+  ansible.builtin.command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  become: false
+  changed_when: false
+
+- name: Update Helm repositories
+  ansible.builtin.command: helm repo update
+  become: false
+  changed_when: false
+
+# 2. Create namespace and prepare configuration
+# Create namespace for monitoring
+- name: Create monitoring namespace
+  ansible.builtin.shell: kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+  become: false
+  changed_when: false
+
+# Create the values file for kube-prometheus-stack
+- name: Create kube-prometheus-stack values file
+  ansible.builtin.template:
+    src: prometheus-values.yaml.j2
+    dest: /tmp/prometheus-values.yaml
+    mode: '0644'
+  become: false
+
+# 3. Prepare custom dashboards
+# Create Grafana dashboards ConfigMap
+- name: Create directory for custom dashboards
+  ansible.builtin.file:
+    path: /tmp/dashboards
+    state: directory
+    mode: '0755'
+  become: false
+
+- name: Copy custom dashboards
+  ansible.builtin.template:
+    src: 'dashboards/{{ item }}.json.j2'
+    dest: '/tmp/dashboards/{{ item }}.json'
+    mode: '0644'
+  loop: '{{ custom_dashboards | default([]) }}'
+  become: false
+  when: custom_dashboards is defined
+
+# 4. Deploy monitoring stack
+# Install kube-prometheus-stack
+- name: Install kube-prometheus-stack
+  ansible.builtin.command: >
+    helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack
+    --namespace monitoring
+    --values /tmp/prometheus-values.yaml
+    --version {{ kube_prometheus_stack_version }}
+    --timeout 600s
+    --wait
+  become: false
+  register: prometheus_install
+  changed_when: prometheus_install.rc == 0
+
+# 5. Verify deployment
+# Wait for deployments to become available
+- name: Wait for Prometheus deployment
+  ansible.builtin.shell: |
+    kubectl wait --for=condition=available deployment/kube-prometheus-stack-prometheus -n monitoring --timeout=300s
+  register: prometheus_ready
+  until: prometheus_ready.rc == 0
+  retries: 15
+  delay: 20
+  become: false
+  failed_when: false
+  changed_when: false
+
+- name: Wait for Grafana deployment
+  ansible.builtin.shell: |
+    kubectl wait --for=condition=available deployment/kube-prometheus-stack-grafana -n monitoring --timeout=300s
+  register: grafana_ready
+  until: grafana_ready.rc == 0
+  retries: 15
+  delay: 20
+  become: false
+  failed_when: false
+  changed_when: false
+
+# 6. Configure ingress access
+# Create ingress resources if enabled
+- name: Create monitoring ingress configuration
+  ansible.builtin.template:
+    src: monitoring-ingress.yaml.j2
+    dest: /tmp/monitoring-ingress.yaml
+    mode: '0644'
+  become: false
+  when: enable_monitoring_ingress | bool
+
+- name: Apply monitoring ingress
+  ansible.builtin.command: kubectl apply -f /tmp/monitoring-ingress.yaml
+  become: false
+  when: enable_monitoring_ingress | bool
+  changed_when: true
+
+# 7. Display access information
+# Display access information
+- name: Get Grafana service information
+  ansible.builtin.shell: |
+    echo "Grafana web interface: http://$(kubectl get service kube-prometheus-stack-grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):80"
+    echo "Username: {{ grafana_admin_user }}"
+    echo "Password: $(kubectl get secret kube-prometheus-stack-grafana -n monitoring -o jsonpath='{.data.admin-password}' | base64 --decode)"
+  register: grafana_info
+  become: false
+  changed_when: false
+
+- name: Display Grafana access information
+  ansible.builtin.debug:
+    msg: '{{ grafana_info.stdout_lines }}'

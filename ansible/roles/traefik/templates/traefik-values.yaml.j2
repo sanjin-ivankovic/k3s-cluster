@@ -1,0 +1,84 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+# Basic configuration
+image:
+  repository: traefik
+  tag: {{ traefik_version | default('v3.3.4') }}
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: LoadBalancer
+{% if traefik_ip_address is defined %}
+  loadBalancerIP: {{ traefik_ip_address }}
+{% endif %}
+  ports:
+    - name: web
+      port: 80
+      targetPort: 8000
+    - name: websecure
+      port: 443
+      targetPort: 8443
+
+# Port configuration
+ports:
+  web:
+    redirections:
+      entryPoint:
+        to: websecure
+        scheme: https
+        permanent: true
+
+# Use existing TLS certificate from cert-manager
+deployment:
+  tlsStore:
+    enabled: true
+    default: true
+
+# Additional arguments for tls configuration
+additionalArguments:
+  - "--providers.kubernetesingress.ingressclass=traefik"
+  - "--providers.kubernetescrd.ingressclass=traefik"
+  - "--log.level=DEBUG"
+  - "--certificatesresolvers.le.acme.email={{ cert_manager_email }}"
+  - "--certificatesresolvers.le.acme.storage=/data/acme.json"
+  - "--certificatesresolvers.le.acme.tlschallenge=true"
+
+# Disable auto-generating certificates
+experimental:
+  plugins:
+    enabled: false
+
+# Dashboard configuration
+ingressRoute:
+  dashboard:
+    enabled: {{ traefik_dashboard_enabled | default(true) | lower }}
+{% if traefik_dashboard_enabled | default(true) | bool %}
+    entryPoints:
+      - websecure
+    matchRule: Host(`{{ traefik_dashboard_hostname | default('traefik.' + cloudflare_domain) }}`)
+    tls:
+      # Use the wildcard certificate
+      secretName: {{ cert_manager_tls_secret_name | default('phizio-wildcard-tls') }}
+{% endif %}
+
+# Resource limits and requests
+{% if traefik_resources is defined %}
+resources:
+  requests:
+    cpu: {{ traefik_resources.requests.cpu | default('100m') }}
+    memory: {{ traefik_resources.requests.memory | default('128Mi') }}
+  limits:
+    cpu: {{ traefik_resources.limits.cpu | default('300m') }}
+    memory: {{ traefik_resources.limits.memory | default('256Mi') }}
+{% endif %}
+
+# Persist TLS certs
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 128Mi
+  path: /data
+  annotations: {}

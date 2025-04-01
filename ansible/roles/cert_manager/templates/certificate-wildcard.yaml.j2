@@ -1,0 +1,29 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ cert_manager_certificate_name | default('phizio-wildcard-cert') }}
+  namespace: {{ cert_manager_certificate_namespace | default('default') }}
+  annotations:
+    managed-by: ansible
+spec:
+  secretName: {{ cert_manager_tls_secret_name | default('phizio-wildcard-tls') }}
+  issuerRef:
+    name: {{ cert_manager_issuer_name | default('acme-clusterissuer') }}
+    kind: ClusterIssuer
+  commonName: {{ cloudflare_domain }}
+  dnsNames:
+    - {{ cloudflare_domain }}
+    - '*.{{ cloudflare_domain }}'
+  duration: 2160h  # 90 days
+  renewBefore: 360h  # 15 days before expiry
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth

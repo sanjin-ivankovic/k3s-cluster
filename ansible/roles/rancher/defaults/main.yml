@@ -1,0 +1,21 @@
+---
+# Rancher settings
+rancher_version: '2.10.3'
+rancher_hostname: 'rancher.{{ cloudflare_domain }}'
+rancher_replicas: 1
+rancher_private_ca: false
+
+# Rancher resource limits
+rancher_resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 750Mi
+
+# Optional: Define a bootstrap password for non-interactive installs
+# rancher_bootstrap_password: "admin"
+
+# Prometheus monitoring for Rancher
+rancher_prometheus_enabled: true # Set to true if you want to enable built-in monitoring

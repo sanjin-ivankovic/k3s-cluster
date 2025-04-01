@@ -1,0 +1,29 @@
+---
+# Deploy Rancher on K3s Cluster
+- name: Deploy Rancher management platform
+  hosts: master
+  become: false
+  vars_files:
+    - '../group_vars/all.yml'
+    - '../group_vars/master.yml'
+    - '../group_vars/secure.yml'
+  pre_tasks:
+    - name: Check if cert-manager is available
+      ansible.builtin.shell: |
+        kubectl get deployment -n cert-manager cert-manager -o name
+      register: cert_manager_check
+      ignore_errors: true
+      changed_when: false
+      failed_when: false
+
+    - name: Verify cert-manager availability
+      ansible.builtin.fail:
+        msg: |
+          cert-manager is not found. Rancher requires cert-manager for TLS certificates.
+          Please make sure cert-manager is deployed first.
+      when: cert_manager_check.rc != 0
+
+  roles:
+    - rancher
+  tags:
+    - rancher

@@ -1,0 +1,30 @@
+nodes:
+  k3s-srv-1:
+    vmid: 500
+    ip: 10.0.0.6
+    type: master
+    macaddr: 'DE:AD:BE:EF:00:01'
+    os: ubuntu-cloud
+    cores: 4
+    ram: 4096
+    disk_size: '40G'
+
+  k3s-wkr-1:
+    vmid: 501
+    ip: 10.0.0.7
+    type: worker
+    macaddr: 'DE:AD:BE:EF:00:02'
+    os: ubuntu-cloud
+    cores: 4
+    ram: 8192
+    disk_size: '60G'
+
+  k3s-wkr-2:
+    vmid: 502
+    ip: 10.0.0.8
+    type: worker
+    macaddr: 'DE:AD:BE:EF:00:03'
+    os: ubuntu-cloud
+    cores: 4
+    ram: 8192
+    disk_size: '60G'

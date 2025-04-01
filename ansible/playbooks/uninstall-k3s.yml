@@ -1,0 +1,119 @@
+---
+# Playbook to uninstall K3s from the cluster
+
+- name: Uninstall K3s worker nodes first
+  hosts: workers
+  become: true
+  tasks:
+    - name: Run k3s-agent-uninstall.sh script
+      ansible.builtin.command: /usr/local/bin/k3s-agent-uninstall.sh
+      failed_when: false
+      register: uninstall_result
+      changed_when: uninstall_result.rc == 0
+
+    - name: Clean up worker node
+      ansible.builtin.shell: |
+        systemctl stop k3s-agent || true
+        # Kill related processes
+        pkill -9 k3s-agent containerd || true
+        # Clean up files
+        rm -rf /usr/local/bin/k3s*
+        rm -rf /var/lib/rancher/k3s
+        rm -rf /etc/rancher/k3s
+        rm -f /var/log/k3s*.log
+        rm -f /etc/systemd/system/k3s-agent.service*
+      failed_when: false
+      changed_when: true
+
+- name: Uninstall K3s master nodes
+  hosts: master
+  become: true
+  tasks:
+    - name: Run k3s-uninstall.sh script
+      ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
+      failed_when: false
+      register: uninstall_result
+      changed_when: uninstall_result.rc == 0
+
+    - name: Clean up master node
+      ansible.builtin.shell: |
+        systemctl stop k3s || true
+        # Kill related processes
+        pkill -9 k3s containerd || true
+        # Clean up files and directories
+        rm -rf /usr/local/bin/k3s*
+        rm -rf /var/lib/rancher/k3s
+        rm -rf /etc/rancher/k3s
+        rm -f /var/log/k3s*.log
+        rm -f /etc/systemd/system/k3s.service*
+      failed_when: false
+      changed_when: true
+
+    - name: Clean up user configuration files
+      ansible.builtin.shell: |
+        rm -rf ~/.kube
+        rm -rf ~/.rancher
+        rm -rf ~/.helm
+        rm -rf /tmp/metallb-values.yaml
+      become: false
+      failed_when: false
+      changed_when: true
+
+    - name: Remove kubectl bash completion
+      ansible.builtin.lineinfile:
+        path: /home/{{ ansible_user }}/.bashrc
+        line: 'source <(kubectl completion bash)'
+        state: absent
+      become: false
+      failed_when: false
+
+- name: Clean up all nodes
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      failed_when: false
+
+    - name: Cleanup container systems
+      ansible.builtin.shell: |
+        # Clean up network interfaces
+        ip link delete flannel.1 2>/dev/null || true
+        ip link delete cni0 2>/dev/null || true
+        ip link delete tunl0 2>/dev/null || true
+        # Clean up routing
+        ip rule delete lookup 51820 2>/dev/null || true
+        ip rule delete lookup 52821 2>/dev/null || true
+        ip route flush table 51820 2>/dev/null || true
+        ip route flush table 52821 2>/dev/null || true
+      changed_when: true
+      failed_when: false
+
+    - name: Remove container and k8s data
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: absent
+      loop:
+        # CNI directories
+        - /etc/cni
+        - /opt/cni
+        - /var/lib/cni
+        # Kubernetes directories
+        - /var/lib/kubelet
+        - /var/lib/kubernetes
+        - /var/run/kubernetes
+        - /run/kubernetes
+        # Container runtime directories
+        - /var/lib/containerd
+        - /run/containerd
+        - /var/run/containerd
+        # K3s specific directories
+        - /run/k3s
+        - /var.run/k3s
+        - /run/flannel
+        - /var.run/flannel
+        # Calico (if used)
+        - /var.lib.calico
+        - /run.calico
+      failed_when: false

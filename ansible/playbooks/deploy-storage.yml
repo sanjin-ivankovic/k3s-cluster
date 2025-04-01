@@ -1,0 +1,25 @@
+---
+# Deploy Longhorn Storage System on K3s Cluster
+- name: Deploy Longhorn Storage System on K3s Cluster
+  hosts: master
+  become: false
+  vars_files:
+    - '../group_vars/all.yml'
+    - '../group_vars/master.yml'
+    - '../group_vars/secure.yml'
+  pre_tasks:
+    # Set domain variable explicitly before role execution
+    - name: Set required variables for Longhorn templates
+      ansible.builtin.set_fact:
+        cloudflare_domain: '{{ cloudflare_domain }}'
+
+    # Verify cloudflare_domain is accessible
+    - name: Verify cloudflare_domain is defined
+      ansible.builtin.debug:
+        msg: 'Using domain: {{ cloudflare_domain }}'
+      failed_when: cloudflare_domain is not defined
+
+  roles:
+    - longhorn
+  tags:
+    - storage

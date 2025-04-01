@@ -1,0 +1,32 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # Add cert-manager annotation to ensure it processes this ingress
+    cert-manager.io/cluster-issuer: "{{ cert_manager_issuer_name | default('acme-clusterissuer') }}"
+spec:
+  tls:
+    - hosts:
+        - {{ traefik_dashboard_hostname | default('traefik.' + cloudflare_domain) }}
+      # Reference the wildcard certificate secret
+      secretName: {{ cert_manager_tls_secret_name | default('phizio-wildcard-tls') }}
+  rules:
+    - host: {{ traefik_dashboard_hostname | default('traefik.' + cloudflare_domain) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik
+                port:
+                  number: 9000

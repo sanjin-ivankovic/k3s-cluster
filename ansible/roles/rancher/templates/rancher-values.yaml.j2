@@ -1,0 +1,50 @@
+---
+# This file is managed by Ansible. Do not edit it manually.
+# Last modified: {{ ansible_date_time.iso8601 }}
+
+hostname: {{ rancher_hostname | default('rancher.' + cloudflare_domain) }}
+
+ingress:
+  enabled: true
+  # Use the certificate from your secret (in cattle-system)
+  tls:
+    source: secret
+  extraAnnotations:
+    # Ensure the Ingress uses Traefik as the ingress controller.
+    kubernetes.io/ingress.class: traefik
+    # Optionally, if cert-manager is to re-issue certs, reference your issuer:
+    cert-manager.io/cluster-issuer: {{ cert_manager_issuer_name | default('acme-clusterissuer') }}
+
+# Rancher specific settings
+privateCA: {{ rancher_private_ca | default('false') }}
+replicas: {{ rancher_replicas | default('1') }}
+
+{% if rancher_resources is defined %}
+resources:
+  {{ rancher_resources | to_nice_yaml(indent=2) | indent(2) }}
+{% endif %}
+
+# Expose Rancher metrics for Prometheus
+auditLog:
+  level: 1
+  destination: sidecar
+  maxAge: 30
+  maxBackup: 10
+  maxSize: 100
+
+# Bootstrap password - to override default behavior
+{% if rancher_bootstrap_password is defined %}
+bootstrapPassword: {{ rancher_bootstrap_password }}
+{% endif %}
+
+# Global Prometheus settings (optional)
+{% if rancher_prometheus_enabled is defined and rancher_prometheus_enabled %}
+global:
+  cattle:
+    psp:
+      enabled: false
+  systemDefaultRegistry: ""
+prometheus:
+  enabled: true
+  createPrometheusPV: false
+{% endif %}
