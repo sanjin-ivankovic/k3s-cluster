@@ -55,3 +55,10 @@ variable "inventory_path" {
   type        = string
   default     = "../ansible"
 }
+
+# New variable for inventory file
+variable "inventory_file" {
+  description = "Path to the Ansible inventory file"
+  type        = string
+  default     = null # Default to null to allow conditional behavior
+}

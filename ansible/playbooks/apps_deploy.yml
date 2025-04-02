@@ -1,0 +1,9 @@
+---
+# Deploy core applications to the K3s cluster
+
+- name: Deploy core Kubernetes applications
+  hosts: master[0]
+  become: true
+  roles:
+    - role: kubernetes_apps
+      tags: [apps]

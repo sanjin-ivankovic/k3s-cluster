@@ -1,0 +1,49 @@
+# Configuration file for ansible-lint
+exclude_paths:
+  - .cache/ # Exclude cache directories
+  - .github/ # GitHub workflows
+  - inventory/hosts.ini # Generated file
+
+# Parseable output format
+parseable: true
+
+# Use default rules
+use_default_rules: true
+
+# Specify additional rules to use
+enable_list:
+  - fqcn-builtins # Validate fully qualified collection names
+  - no-log-password # Check for no_log on password prompts
+  - no-same-owner # Check file permissions
+  - yaml # Check YAML syntax
+
+# Skip these rules
+skip_list:
+  - '301' # Commands should not change things if nothing needs doing
+  - 'yaml[line-length]' # Line length is handled by an editor
+  - 'role-name' # Role names are defined by our project structure
+  - 'risky-shell-pipe' # Some shell pipes are necessary for our setup
+  - 'var-naming' # Temporarily skip variable naming issues during refactoring
+  - 'jinja[spacing]' # Temporarily skip jinja spacing issues
+  - 'risky-file-permissions' # Temporarily skip file permission issues
+  - 'literal-compare' # Temporarily skip literal comparison issues
+  - 'inline-env-var' # Temporarily skip inline env var issues
+  - 'ignore-errors' # Temporarily skip ignore errors issues during refactoring
+  - 'yaml[truthy]' # Temporarily skip truthy value issues during refactoring
+
+# Rules to display as warnings, but not fail
+warn_list:
+  - 'experimental'
+  - 'no-changed-when' # Some commands don't need changed_when
+  - 'command-instead-of-module' # Some commands have no module equivalent
+
+# Mock modules that might not be installed
+mock_modules:
+  - k8s
+
+# File pattern matches
+kinds:
+  - playbook: 'playbooks/*.yml'
+  - tasks: '**/tasks/*.yml'
+  - vars: '**/vars/*.yml'
+  - meta: '**/meta/main.yml'

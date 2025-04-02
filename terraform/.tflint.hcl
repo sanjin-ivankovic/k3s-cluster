@@ -2,8 +2,9 @@
 # See: https://github.com/terraform-linters/tflint
 
 config {
-  module = true
-  force  = false
+  # Updated from "module" to "call_module_type" for v0.54.0+
+  call_module_type = "local"
+  force            = false
 }
 
 plugin "terraform" {
@@ -36,10 +37,10 @@ rule "terraform_required_version" {
   enabled = true
 }
 
-rule "terraform_unused_declarations" {
+rule "terraform_unused_required_providers" {
   enabled = true
 }
 
-rule "terraform_unused_required_providers" {
+rule "terraform_unused_declarations" {
   enabled = true
 }

@@ -1,0 +1,261 @@
+---
+# 1. Check and install K3s server
+# Check if K3s is already installed and running
+- name: Check if K3s service is already running
+  ansible.builtin.systemd:
+    name: k3s
+    state: started
+  register: k3s_service_status
+  failed_when: false
+
+# Install K3s server only if it's not already running
+- name: Install K3s server
+  ansible.builtin.shell: >
+    curl -sfL https://get.k3s.io |
+    INSTALL_K3S_VERSION={{ k3s_version }}
+    INSTALL_K3S_EXEC="--node-name {{ inventory_hostname }} --write-kubeconfig-mode 644 --token {{ k3s_token }} {{ k3s_server_args | join(' ') }}"
+    sh -s - server
+  args:
+    creates: /usr/local/bin/k3s
+  register: k3s_server_install
+  failed_when: false
+  when: not k3s_service_status.status.ActiveState is defined or k3s_service_status.status.ActiveState != "active"
+
+# 2. Configure K3s service
+# Ensure k3s service is active
+- name: Ensure k3s service is active
+  ansible.builtin.systemd:
+    name: k3s
+    state: started
+    enabled: yes
+
+# 3. Setup kubeconfig
+# Wait for kubeconfig to be created
+- name: Wait for k3s configuration file
+  ansible.builtin.wait_for:
+    path: /etc/rancher/k3s/k3s.yaml
+    state: present
+    timeout: 300
+
+# Fix permissions on k3s.yaml
+- name: Apply proper permissions to k3s.yaml
+  ansible.builtin.file:
+    path: /etc/rancher/k3s/k3s.yaml
+    mode: '0644'
+
+# Set up kubeconfig for kubectl usage
+- name: Create kube directory for current user
+  ansible.builtin.file:
+    path: ~/.kube
+    state: directory
+    mode: '0700'
+  become: false
+
+- name: Copy kubeconfig to user's .kube directory
+  ansible.builtin.copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: ~/.kube/config
+    remote_src: yes
+    owner: '{{ ansible_user }}'
+    mode: '0600'
+  become: false
+
+# 4. Setup basic tools
+# Install Helm
+- name: Install Helm
+  ansible.builtin.shell: |
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+  become: false
+
+# 5. Set up MetalLB
+- name: Add MetalLB Helm repository
+  ansible.builtin.command: helm repo add metallb https://metallb.github.io/metallb
+  become: false
+  changed_when: false
+
+- name: Update Helm repositories
+  ansible.builtin.command: helm repo update
+  become: false
+  changed_when: false
+
+- name: Create MetalLB namespace
+  ansible.builtin.shell: kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f -
+  become: false
+  changed_when: false
+
+# Create values file using template
+- name: Create values file using template
+  ansible.builtin.template:
+    src: metallb-values.yaml.j2
+    dest: /tmp/metallb-values.yaml
+    mode: '0644'
+  become: false
+
+# Install MetalLB through Helm
+- name: Install MetalLB
+  ansible.builtin.command: >
+    helm upgrade --install metallb metallb/metallb
+    --namespace metallb-system
+    --values /tmp/metallb-values.yaml
+    --set crds.enabled=true
+    --timeout 300s
+  become: false
+  register: metallb_install
+  changed_when: metallb_install.rc == 0
+
+# Wait for MetalLB to be ready
+- name: Wait for MetalLB controller to be ready
+  ansible.builtin.shell: |
+    kubectl wait --for=condition=available deployment/metallb-controller -n metallb-system --timeout=180s
+  register: controller_check
+  until: controller_check.rc == 0
+  retries: 6
+  delay: 10
+  changed_when: false
+  become: false
+
+# Check for speakers - one per node
+- name: Wait for MetalLB speakers to be ready
+  ansible.builtin.shell: |
+    READY_SPEAKERS=$(kubectl get daemonset/metallb-speaker -n metallb-system -o jsonpath='{.status.numberReady}')
+    NODE_COUNT=$(kubectl get nodes --no-headers | wc -l)
+    if [ "$READY_SPEAKERS" -gt 0 ]; then
+      echo "Found $READY_SPEAKERS ready MetalLB speakers out of $NODE_COUNT nodes"
+      exit 0
+    else
+      echo "No MetalLB speakers are ready yet"
+      exit 1
+    fi
+  register: speaker_check
+  until: speaker_check.rc == 0
+  retries: 6
+  delay: 10
+  changed_when: false
+  become: false
+
+# Create separate CRD resources for MetalLB configuration
+- name: Template MetalLB IPAddressPool
+  ansible.builtin.template:
+    src: ipaddresspool.yaml.j2
+    dest: /tmp/ipaddresspool.yaml
+    mode: '0644'
+  become: false
+
+- name: Template MetalLB L2Advertisement
+  ansible.builtin.template:
+    src: l2advertisement.yaml.j2
+    dest: /tmp/l2advertisement.yaml
+    mode: '0644'
+  become: false
+
+- name: Apply MetalLB IPAddressPool
+  ansible.builtin.command: kubectl apply -f /tmp/ipaddresspool.yaml
+  become: false
+  changed_when: true
+
+- name: Apply MetalLB L2Advertisement
+  ansible.builtin.command: kubectl apply -f /tmp/l2advertisement.yaml
+  become: false
+  changed_when: true
+
+# # 6. Install cert-manager
+# - name: Add cert-manager Helm repository
+#   ansible.builtin.command: helm repo add jetstack https://charts.jetstack.io
+#   become: false
+#   changed_when: false
+
+# - name: Update Helm repositories
+#   ansible.builtin.command: helm repo update
+#   become: false
+#   changed_when: false
+
+# - name: Create cert-manager namespace
+#   ansible.builtin.shell: kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+#   become: false
+#   changed_when: false
+
+# # Create values file for cert-manager from template
+# - name: Create cert-manager values file
+#   ansible.builtin.template:
+#     src: cert-manager-values.yaml.j2
+#     dest: /tmp/cert-manager-values.yaml
+#     mode: '0644'
+#   become: false
+
+# # Install cert-manager using Helm with custom values
+# - name: Install cert-manager
+#   ansible.builtin.command: >
+#     helm upgrade --install cert-manager jetstack/cert-manager
+#     --namespace cert-manager
+#     --version {{ cert_manager_version | default('v1.17.1') }}
+#     --values /tmp/cert-manager-values.yaml
+#     --timeout 600s
+#     --wait
+#   become: false
+#   register: certmanager_install
+#   changed_when: certmanager_install.rc == 0
+
+# # Wait for cert-manager to be ready before continuing
+# - name: Wait for cert-manager pods to be ready
+#   ansible.builtin.shell: |
+#     kubectl wait --for=condition=available deployment/cert-manager -n cert-manager --timeout=300s
+#     kubectl wait --for=condition=available deployment/cert-manager-webhook -n cert-manager --timeout=300s
+#     kubectl wait --for=condition=available deployment/cert-manager-cainjector -n cert-manager --timeout=300s
+#   become: false
+#   changed_when: false
+
+# # 7. Create CloudFlare Secret
+# - name: Create Cloudflare API token secret for cert-manager
+#   ansible.builtin.template:
+#     src: cloudflare-secret.yaml.j2
+#     dest: /tmp/cloudflare-secret.yaml
+#     mode: '0644'
+#   become: false
+#   when: cloudflare_api_token | length > 0
+
+# - name: Apply CloudFlare secret
+#   ansible.builtin.command: kubectl apply -f /tmp/cloudflare-secret.yaml
+#   become: false
+#   register: cloudflare_secret
+#   changed_when: cloudflare_secret.rc == 0
+#   when: cloudflare_api_token | length > 0
+
+# # 8. Create ClusterIssuer
+# - name: Create ClusterIssuer for Cloudflare DNS challenge
+#   ansible.builtin.template:
+#     src: clusterissuer.yaml.j2
+#     dest: /tmp/clusterissuer.yaml
+#     mode: '0644'
+#   become: false
+
+# - name: Apply ClusterIssuer configuration
+#   ansible.builtin.command: kubectl apply -f /tmp/clusterissuer.yaml
+#   become: false
+#   changed_when: true
+
+# # 9. Create wildcard certificate
+# - name: Create Wildcard Certificate for domain
+#   ansible.builtin.template:
+#     src: certificate-wildcard.yaml.j2
+#     dest: /tmp/certificate-wildcard.yaml
+#     mode: '0644'
+#   become: false
+
+# - name: Apply Wildcard Certificate
+#   ansible.builtin.command: kubectl apply -f /tmp/certificate-wildcard.yaml
+#   become: false
+#   changed_when: true
+
+# # Wait for certificate to be ready (final verification)
+# - name: Wait for certificate to be issued
+#   ansible.builtin.shell: |
+#     kubectl get certificate {{ cert_manager_certificate_name | default('phizio-wildcard-cert') }} -n {{ cert_manager_certificate_namespace | default('default') }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q "True"
+#   register: cert_ready
+#   until: cert_ready.rc == 0
+#   retries: 30
+#   delay: 20
+#   become: false
+#   changed_when: false
+#   failed_when: false

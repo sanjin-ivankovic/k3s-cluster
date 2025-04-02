@@ -1,0 +1,125 @@
+---
+# Tasks for deploying the ingress controller
+
+- name: Deploy ingress controller based on selection
+  when: deploy_ingress | bool
+  block:
+    - name: Deploy Traefik Ingress Controller
+      when: ingress_controller == "traefik"
+      block:
+        - name: Add Traefik repository
+          kubernetes.core.helm_repository:
+            name: traefik
+            repo_url: https://traefik.github.io/charts
+
+        - name: Create traefik namespace
+          kubernetes.core.k8s:
+            name: traefik
+            kind: Namespace
+            state: present
+
+        - name: Install Traefik Ingress Controller
+          kubernetes.core.helm:
+            name: traefik
+            chart_ref: traefik/traefik
+            chart_version: "{{ traefik_version | default('24.1.0') }}"
+            release_namespace: traefik
+            values:
+              deployment:
+                kind: DaemonSet
+              service:
+                type: LoadBalancer
+              ports:
+                web:
+                  port: 80
+                  expose: true
+                websecure:
+                  port: 443
+                  expose: true
+              ingressRoute:
+                dashboard:
+                  enabled: true
+              additionalArguments:
+                - '--api.dashboard=true'
+                - '--log.level=INFO'
+
+        - name: Wait for Traefik to be ready
+          kubernetes.core.k8s_info:
+            kind: DaemonSet
+            name: traefik
+            namespace: traefik
+            wait: yes
+            wait_timeout: 300
+            wait_condition:
+              type: Available
+              status: 'True'
+          register: traefik_status
+          until: traefik_status.resources is defined and traefik_status.resources | length > 0
+          retries: 10
+          delay: 30
+
+    - name: Deploy NGINX Ingress Controller
+      when: ingress_controller == "nginx"
+      block:
+        - name: Add NGINX repository
+          kubernetes.core.helm_repository:
+            name: ingress-nginx
+            repo_url: https://kubernetes.github.io/ingress-nginx
+
+        - name: Create ingress-nginx namespace
+          kubernetes.core.k8s:
+            name: ingress-nginx
+            kind: Namespace
+            state: present
+
+        - name: Install NGINX Ingress Controller
+          kubernetes.core.helm:
+            name: ingress-nginx
+            chart_ref: ingress-nginx/ingress-nginx
+            chart_version: "{{ ingress_nginx_version | default('4.10.0') }}"
+            release_namespace: ingress-nginx
+            values:
+              controller:
+                kind: DaemonSet
+                hostNetwork: false
+                metrics:
+                  enabled: true
+                publishService:
+                  enabled: true
+                service:
+                  enabled: true
+                  type: LoadBalancer
+                config:
+                  use-forwarded-headers: 'true'
+
+        - name: Wait for NGINX Ingress Controller to be ready
+          kubernetes.core.k8s_info:
+            kind: DaemonSet
+            name: ingress-nginx-controller
+            namespace: ingress-nginx
+            wait: yes
+            wait_timeout: 300
+            wait_condition:
+              type: Available
+              status: 'True'
+
+- name: Determine ingress namespace and service name
+  ansible.builtin.set_fact:
+    ingress_namespace: "{{ 'traefik' if ingress_controller == 'traefik' else 'ingress-nginx' }}"
+    ingress_service_name: "{{ 'traefik' if ingress_controller == 'traefik' else 'ingress-nginx-controller' }}"
+
+- name: Get ingress controller service information
+  kubernetes.core.k8s_info:
+    kind: Service
+    namespace: '{{ ingress_namespace }}'
+    name: '{{ ingress_service_name }}'
+  register: ingress_service
+  when: deploy_ingress | bool
+  until: ingress_service.resources is defined and ingress_service.resources | length > 0
+  retries: 5
+  delay: 10
+
+- name: Display ingress external IP or hostname
+  ansible.builtin.debug:
+    msg: "Ingress controller is available at: {{ ingress_service.resources[0].status.loadBalancer.ingress[0].ip | default(ingress_service.resources[0].status.loadBalancer.ingress[0].hostname) | default('Not yet available') }}"
+  when: deploy_ingress | bool and ingress_service.resources | length > 0

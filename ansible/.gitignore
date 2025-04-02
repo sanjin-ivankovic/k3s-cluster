@@ -1,0 +1,40 @@
+# Ansible specific
+*.retry
+.ansible/
+*.pyc
+__pycache__/
+
+# Generated inventory files
+/inventory/generated/
+
+# Local kubeconfig
+kubeconfig
+
+# Log files
+*.log
+
+# Temporary files
+.tmp/
+*~
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Ansible Vault password files
+.vault_pass
+vault_pass
+
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Secrets
+*.secret
+*secrets*
+
+# Downloaded Kubernetes manifests
+/files/manifests/

@@ -22,7 +22,7 @@ output "worker_nodes" {
 
 output "inventory_file" {
   description = "Path to the generated inventory file"
-  value       = "${var.inventory_path}/k3s-inventory.ini"
+  value       = var.inventory_file != null ? var.inventory_file : "${var.inventory_path}/k3s-inventory.ini"
 }
 
 output "all_nodes" {

@@ -1,0 +1,176 @@
+---
+# Tasks for deploying a monitoring stack with Prometheus and Grafana
+
+- name: Deploy Prometheus/Grafana monitoring stack
+  when: deploy_monitoring | bool
+  block:
+    - name: Add Prometheus community helm repository
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: https://prometheus-community.github.io/helm-charts
+
+    - name: Create monitoring namespace
+      kubernetes.core.k8s:
+        name: monitoring
+        kind: Namespace
+        state: present
+        wait: yes
+
+    # Deploy kube-prometheus-stack which includes:
+    # - Prometheus Operator
+    # - Prometheus
+    # - Alertmanager
+    # - Node Exporter
+    # - Kube State Metrics
+    # - Grafana
+    - name: Deploy kube-prometheus-stack
+      kubernetes.core.helm:
+        name: kube-prometheus-stack
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: monitoring
+        update_repo_cache: true
+        values:
+          prometheus:
+            prometheusSpec:
+              retention: "{{ prometheus_retention | default('10d') }}"
+              storageSpec:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: '{{ storage_class }}'
+                    resources:
+                      requests:
+                        storage: "{{ prometheus_storage_size | default('10Gi') }}"
+          grafana:
+            adminPassword: "{{ grafana_admin_password | default('admin') }}"
+            persistence:
+              enabled: true
+              storageClassName: '{{ storage_class }}'
+              size: "{{ grafana_storage_size | default('5Gi') }}"
+            dashboardProviders:
+              dashboardproviders.yaml:
+                apiVersion: 1
+                providers:
+                  - name: 'default'
+                    orgId: 1
+                    folder: ''
+                    type: file
+                    disableDeletion: false
+                    editable: true
+                    options:
+                      path: /var/lib/grafana/dashboards/default
+            dashboards:
+              default:
+                k3s-monitoring:
+                  gnetId: 12006 # Kubernetes Cluster Dashboard
+                  datasource: Prometheus
+                node-exporter:
+                  gnetId: 1860 # Node Exporter Full
+                  datasource: Prometheus
+          alertmanager:
+            alertmanagerSpec:
+              storage:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: '{{ storage_class }}'
+                    resources:
+                      requests:
+                        storage: "{{ alertmanager_storage_size | default('2Gi') }}"
+      register: prom_stack_deployment
+      until: prom_stack_deployment is success
+      retries: 2
+      delay: 30
+
+    - name: Wait for Prometheus deployment to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: kube-prometheus-stack-prometheus
+        namespace: monitoring
+        wait: yes
+        wait_timeout: 300
+        wait_condition:
+          type: Available
+          status: 'True'
+      register: prometheus_deployment
+      until: prometheus_deployment.resources is defined and prometheus_deployment.resources | length > 0
+      retries: 10
+      delay: 30
+      ignore_errors: true # Don't fail if the deployment name is different
+
+    - name: Wait for Grafana deployment to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: kube-prometheus-stack-grafana
+        namespace: monitoring
+        wait: yes
+        wait_timeout: 300
+        wait_condition:
+          type: Available
+          status: 'True'
+      register: grafana_deployment
+      until: grafana_deployment.resources is defined and grafana_deployment.resources | length > 0
+      retries: 10
+      delay: 30
+      ignore_errors: true # Don't fail if the deployment name is different
+
+    # Create Ingress for Grafana if ingress is deployed
+    - name: Create Grafana Ingress
+      when: deploy_ingress | bool
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: grafana-ingress
+            namespace: monitoring
+            annotations:
+              kubernetes.io/ingress.class: '{{ ingress_controller }}'
+          spec:
+            rules:
+              - host: "{{ grafana_hostname | default('grafana.k3s.local') }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: kube-prometheus-stack-grafana
+                          port:
+                            number: 80
+
+    # Get Grafana admin info
+    - name: Get Grafana service info
+      kubernetes.core.k8s_info:
+        kind: Service
+        namespace: monitoring
+        name: kube-prometheus-stack-grafana
+      register: grafana_service
+
+    - name: Display Grafana access information
+      ansible.builtin.debug:
+        msg: |
+          Grafana has been deployed successfully!
+
+          Access options:
+            1. Using Ingress: http://{{ grafana_hostname | default('grafana.k3s.local') }}
+               (Add to your hosts file or configure DNS)
+
+            2. Using port-forward: kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
+               Then access: http://localhost:3000
+
+            3. Using LoadBalancer IP (if configured): {{ grafana_service.resources[0].status.loadBalancer.ingress[0].ip | default('No LoadBalancer IP assigned') }}
+
+          Login credentials:
+            Username: admin
+            Password: {{ grafana_admin_password | default('admin') }}
+      when: grafana_service.resources is defined and grafana_service.resources | length > 0
+
+    - name: Display Prometheus access information
+      ansible.builtin.debug:
+        msg: |
+          Prometheus has been deployed successfully!
+
+          Access using port-forward:
+          kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090
+
+          Then visit: http://localhost:9090

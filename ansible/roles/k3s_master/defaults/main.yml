@@ -1,13 +1,15 @@
 ---
-# Default variables for the k3s_master role
-# These will be used if not defined elsewhere
+# Defaults for k3s_master role
 
-# Additional server arguments
-k3s_server_args:
-  - '--disable=traefik'
-  - '--disable=servicelb'
-  - '--disable=metrics-server'
-  - '--kube-apiserver-arg=feature-gates=MixedProtocolLBService=true'
+# Whether to copy kubeconfig to local machine
+k3s_master_copy_kubeconfig_to_local: true
 
-# Default MetalLB addresses that can be overridden in group_vars
-metallb_addresses: '10.0.0.200-10.0.0.220'
+# Whether to enable HA mode
+k3s_master_ha_mode: true
+
+# Default TLS SANs for the API server
+k3s_master_tls_san: '{{ ansible_default_ipv4.address }},{{ ansible_hostname }},{{ inventory_hostname }}'
+
+# Keep these as globals since they're used across roles
+k3s_version: v1.31.7+k3s1
+k3s_channel: stable

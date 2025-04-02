@@ -30,7 +30,7 @@ This module handles the preparation of VMs for subsequent Ansible-based K3s depl
 
 ```hcl
 module "vm_prep" {
-  source = "../modules/kubernetes"
+  source = "../modules/vm_prep"
 
   master_ips           = ["192.168.1.10"]
   worker_ips           = ["192.168.1.11", "192.168.1.12"]

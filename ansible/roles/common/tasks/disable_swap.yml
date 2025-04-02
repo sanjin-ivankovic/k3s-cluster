@@ -1,0 +1,21 @@
+---
+# Disable swap for Kubernetes
+
+- name: Check if swap is enabled
+  ansible.builtin.command: swapon --show
+  register: swap_status
+  changed_when: false
+  check_mode: false
+
+- name: Disable swap
+  ansible.builtin.command: swapoff -a
+  when: swap_status.stdout != "" and common_disable_swap | bool
+  changed_when: swap_status.stdout != ""
+
+- name: Remove swap from fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    line: '# \1'
+    backrefs: true
+  when: common_disable_swap | bool

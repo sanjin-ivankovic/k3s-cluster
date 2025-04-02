@@ -1,0 +1,153 @@
+---
+# Playbook to cleanly uninstall K3s from all nodes
+
+- name: Confirm before proceeding
+  hosts: localhost
+  gather_facts: false
+  vars_prompt:
+    - name: confirmation
+      prompt: 'This will completely remove K3s and all data from the cluster. Are you sure? (yes/no)'
+      private: false
+  tasks:
+    - name: Check confirmation
+      ansible.builtin.fail:
+        msg: 'Aborted K3s reset. No changes were made.'
+      when: confirmation|lower != 'yes'
+
+- name: Uninstall K3s from worker nodes
+  hosts: node
+  become: true
+  tasks:
+    - name: Stop and disable K3s agent service
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Run k3s agent uninstall script
+      ansible.builtin.command: /usr/local/bin/k3s-agent-uninstall.sh
+      register: uninstall_agent
+      changed_when: uninstall_agent.rc == 0
+      failed_when: false
+      args:
+        removes: /usr/local/bin/k3s-agent-uninstall.sh
+
+    - name: Wait for node shutdown to complete
+      ansible.builtin.pause:
+        seconds: 5
+
+- name: Uninstall K3s from master nodes
+  hosts: master
+  become: true
+  serial: 1 # One at a time to ensure clean shutdown
+  tasks:
+    - name: Check if this is the last master node
+      ansible.builtin.set_fact:
+        is_last_master: '{{ ansible_play_hosts_all.index(inventory_hostname) == ansible_play_hosts_all|length - 1 }}'
+
+    - name: Stop and disable K3s server service
+      ansible.builtin.systemd:
+        name: k3s
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Run k3s server uninstall script
+      ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
+      register: uninstall_server
+      changed_when: uninstall_server.rc == 0
+      failed_when: false
+      args:
+        removes: /usr/local/bin/k3s-uninstall.sh
+
+    - name: Wait for server shutdown to complete
+      ansible.builtin.pause:
+        seconds: 10
+
+- name: Clean up remaining k3s artifacts
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Remove k3s directory
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: absent
+      with_items:
+        - /var/lib/rancher/k3s
+        - /etc/rancher/k3s
+        - /var/lib/kubelet
+        - /var/lib/cni
+        - /etc/cni
+        - /var/run/k3s
+        - /var/run/flannel
+        - /var/lib/calico
+        - /etc/kubernetes
+      failed_when: false
+
+    - name: Remove CNI interfaces
+      ansible.builtin.command: 'ip link delete {{ item }}'
+      with_items:
+        - flannel.1
+        - cni0
+        - vxlan.calico
+      failed_when: false
+      changed_when: false
+
+    - name: Remove iptables rules
+      ansible.builtin.shell: |
+        iptables-save | grep -v KUBE | grep -v CNI | iptables-restore
+      failed_when: false
+      changed_when: false
+
+    - name: Flush iptables rules
+      ansible.builtin.command: '{{ item }}'
+      with_items:
+        - iptables -F
+        - iptables -X
+        - iptables -t nat -F
+        - iptables -t nat -X
+        - iptables -t mangle -F
+        - iptables -t mangle -X
+      failed_when: false
+      changed_when: true
+
+    - name: Restart networking
+      ansible.builtin.service:
+        name: "{{ 'systemd-networkd' if ansible_distribution == 'Ubuntu' and ansible_distribution_major_version is version('18', '>=') else 'networking' }}"
+        state: restarted
+      failed_when: false
+
+    - name: Reboot node to ensure clean state
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        post_reboot_delay: 30
+      when: ansible_facts.distribution != "container"
+
+- name: Clean up local Kubernetes configuration
+  hosts: localhost
+  tasks:
+    - name: Check if .kube/config exists
+      ansible.builtin.stat:
+        path: ~/.kube/config
+      register: kube_config
+
+    - name: Back up existing kube config
+      ansible.builtin.copy:
+        src: ~/.kube/config
+        dest: ~/.kube/config.bak.{{ ansible_date_time.iso8601_basic_short }}
+        remote_src: yes
+      when: kube_config.stat.exists
+
+    - name: Display cleanup completion message
+      ansible.builtin.debug:
+        msg: |
+          K3s has been completely removed from the cluster.
+
+          To redeploy the cluster:
+          1. Run the installation playbook: ansible-playbook playbooks/k3s_install.yml
+          2. Deploy applications: ansible-playbook playbooks/apps_deploy.yml
+
+          A backup of your kubectl config (if it existed) was created at:
+          ~/.kube/config.bak.{{ ansible_date_time.iso8601_basic_short }}
+      when: kube_config.stat.exists

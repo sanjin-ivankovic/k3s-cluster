@@ -1,0 +1,125 @@
+---
+# 1. Validate prerequisites
+- name: Verify token availability
+  ansible.builtin.fail:
+    msg: 'Master node token is not available. Please ensure the master play has run successfully.'
+  when: hostvars[groups['master'][0]]['k3s_node_token'] is not defined
+
+# 2. Handle existing K3s installation
+# Check for existing K3s installation
+- name: Check for existing k3s installation
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s-agent-uninstall.sh
+  register: k3s_uninstall_script
+
+# Clean uninstall if present
+- name: Uninstall existing K3s if present
+  ansible.builtin.command: /usr/local/bin/k3s-agent-uninstall.sh
+  when: k3s_uninstall_script.stat.exists
+  register: k3s_uninstall
+  changed_when: k3s_uninstall.rc == 0
+  failed_when: false
+
+- name: Log uninstall action
+  ansible.builtin.debug:
+    msg: 'Uninstalled previous K3s agent installation for clean deployment.'
+    verbosity: 1
+  when: k3s_uninstall is defined and k3s_uninstall.changed
+
+- name: Wait after uninstall
+  ansible.builtin.pause:
+    seconds: 5
+  when: k3s_uninstall is defined and k3s_uninstall.changed
+
+# 3. Install K3s agent
+- name: Install K3s agent
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION={{ k3s_version }} \
+    K3S_URL=https://{{ hostvars[groups['master'][0]]['ansible_host'] }}:6443 \
+    K3S_TOKEN={{ hostvars[groups['master'][0]]['k3s_node_token'] }} \
+    K3S_NODE_NAME={{ inventory_hostname }} \
+    sh -s - {{ k3s_worker_args | join(' ') }}
+  args:
+    creates: /usr/local/bin/k3s
+  register: k3s_worker_install
+
+# 4. Verify agent service
+# Ensure k3s agent service is running
+- name: Ensure k3s agent service is running
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: started
+    enabled: yes
+
+# Get more detailed agent status for better troubleshooting
+- name: Check agent status and logs
+  ansible.builtin.shell: |
+    echo "=== AGENT SERVICE STATUS ==="
+    systemctl status k3s-agent || true
+    echo "=== AGENT LOGS ==="
+    journalctl -n 20 -u k3s-agent || true
+  register: agent_status
+  changed_when: false
+
+- name: Show agent status
+  ansible.builtin.debug:
+    var: agent_status.stdout_lines
+    verbosity: 1
+
+# 5. Verify node registration and readiness
+# Use a better check to wait for node to register with the cluster
+- name: Wait for node to register with the cluster
+  ansible.builtin.command: kubectl get node {{ inventory_hostname }}
+  register: node_registered
+  until: node_registered.rc == 0
+  retries: 15 # Consider increasing for larger clusters or slower networks
+  delay: 20
+  delegate_to: "{{ groups['master'][0] }}" # This assumes a single master
+  changed_when: false
+  become: false
+
+# Now wait for node to reach the Ready state
+- name: Wait for node to be ready
+  ansible.builtin.shell: |
+    kubectl get node {{ inventory_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  register: node_ready
+  until: node_ready.stdout == "True"
+  retries: 15
+  delay: 20
+  delegate_to: "{{ groups['master'][0] }}"
+  changed_when: false
+  become: false
+
+# 6. Apply node configuration
+# Add labels to worker nodes (after node is ready)
+- name: Apply node labels
+  ansible.builtin.shell: |
+    {% for key, value in node_labels.items() %}
+    kubectl label nodes {{ inventory_hostname }} {{ key }}={{ value }} --overwrite
+    {% endfor %}
+  delegate_to: "{{ groups['master'][0] }}"
+  become: false
+  changed_when: true
+  when: node_labels is defined
+
+# Apply taints if defined
+- name: Apply node taints
+  ansible.builtin.shell: |
+    {% for taint in node_taints %}
+    kubectl taint nodes {{ inventory_hostname }} {{ taint }} --overwrite
+    {% endfor %}
+  delegate_to: "{{ groups['master'][0] }}"
+  become: false
+  changed_when: true
+  when: node_taints is defined and node_taints|length > 0
+
+# Apply system settings if defined
+- name: Apply custom sysctl settings
+  ansible.builtin.sysctl:
+    name: '{{ item.key }}'
+    value: '{{ item.value }}'
+    state: present
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+  with_dict: '{{ system_settings | default({}) }}'
+  when: system_settings is defined

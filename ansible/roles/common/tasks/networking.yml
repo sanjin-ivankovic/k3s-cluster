@@ -1,0 +1,42 @@
+---
+# Configure networking settings for K3s nodes
+
+- name: Get network facts
+  ansible.builtin.setup:
+    gather_subset: network
+  check_mode: false
+
+- name: Setup hostname
+  ansible.builtin.hostname:
+    name: '{{ inventory_hostname }}'
+  when: common_configure_hostname | default(true) | bool
+
+- name: Configure /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^{{ ansible_host }}\\s+{{ inventory_hostname }}$"
+    line: '{{ ansible_host }} {{ inventory_hostname }}'
+    state: present
+  when: common_configure_hosts | default(true) | bool
+
+- name: Enable IP forwarding in sysctl
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_set: true
+    state: present
+    reload: true
+
+- name: Configure bridge netfilter settings
+  ansible.posix.sysctl:
+    name: '{{ item.name }}'
+    value: '{{ item.value }}'
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - name: net.bridge.bridge-nf-call-iptables
+      value: 1
+    - name: net.bridge.bridge-nf-call-ip6tables
+      value: 1
+  when: common_configure_bridge_netfilter | default(true) | bool

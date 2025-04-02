@@ -1,0 +1,81 @@
+---
+# Tasks for deploying core Kubernetes applications
+
+- name: Create temporary directory for manifests
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: manifests
+  register: temp_manifest_dir
+  delegate_to: localhost
+  become: false
+  when: not ansible_check_mode
+
+- name: Create dummy temp directory for check mode
+  ansible.builtin.set_fact:
+    temp_manifest_dir:
+      path: '/tmp/dummy-manifest-dir-check-mode'
+  when: ansible_check_mode
+
+# Install Helm before any tasks that require it
+- name: Install Helm
+  ansible.builtin.include_tasks: install_helm.yml
+  tags: [helm]
+
+# Simulate Helm being installed in check mode
+- name: Simulate helm installation in check mode
+  block:
+    - name: Create dummy helm command for check mode
+      ansible.builtin.file:
+        path: /tmp/helm-dummy
+        state: touch
+        mode: '0755'
+      changed_when: false
+      when: ansible_check_mode
+
+    - name: Create dummy helm command symlink
+      ansible.builtin.file:
+        src: /tmp/helm-dummy
+        dest: /usr/local/bin/helm
+        state: link
+        force: yes
+      when: ansible_check_mode
+  when: ansible_check_mode
+
+# Deploy MetalLB before anything else that might need LoadBalancer services
+- name: Deploy MetalLB load balancer
+  ansible.builtin.include_tasks: metallb.yml
+  tags: [metallb, loadbalancer]
+  when: kubernetes_apps_deploy_metallb | default(deploy_metallb) | default(true) | bool
+
+# Deploy storage solutions
+- name: Deploy storage solutions
+  ansible.builtin.include_tasks: storage.yml
+  tags: [storage]
+  when: kubernetes_apps_deploy_storage | default(deploy_storage) | default(true) | bool
+
+# Deploy core platform components
+- name: Deploy core Kubernetes components
+  ansible.builtin.include_tasks: core_components.yml
+  tags: [core]
+
+# Deploy ingress controller
+- name: Deploy ingress controller
+  ansible.builtin.include_tasks: ingress.yml
+  tags: [ingress]
+  when: kubernetes_apps_deploy_ingress | default(deploy_ingress) | default(true) | bool
+
+# Deploy monitoring stack
+- name: Deploy monitoring stack
+  ansible.builtin.include_tasks: monitoring.yml
+  tags: [monitoring]
+  when: kubernetes_apps_deploy_monitoring | default(deploy_monitoring) | default(false) | bool
+
+# Clean up
+- name: Remove temporary directory
+  ansible.builtin.file:
+    path: '{{ temp_manifest_dir.path }}'
+    state: absent
+  delegate_to: localhost
+  become: false
+  when: temp_manifest_dir.path is defined
+  changed_when: false

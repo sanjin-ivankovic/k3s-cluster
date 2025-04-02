@@ -1,0 +1,88 @@
+---
+# Tasks for deploying core Kubernetes components
+
+- name: Create kube config directory
+  ansible.builtin.file:
+    path: ~/.kube
+    state: directory
+    mode: '0700'
+
+- name: Copy kube config
+  ansible.builtin.copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: ~/.kube/config
+    remote_src: yes
+    mode: '0600'
+
+- name: Set KUBECONFIG environment variable
+  ansible.builtin.lineinfile:
+    path: ~/.bashrc
+    line: 'export KUBECONFIG=~/.kube/config'
+    state: present
+    create: yes
+
+- name: Create namespace for core components
+  kubernetes.core.k8s:
+    name: kube-system
+    kind: Namespace
+    state: present
+    wait: yes
+
+- name: Deploy CoreDNS if not enabled by default
+  when: "'coredns' in k3s_disable"
+  block:
+    - name: Create CoreDNS manifest
+      ansible.builtin.template:
+        src: coredns.yaml.j2
+        dest: '{{ temp_manifest_dir.path }}/coredns.yaml'
+      delegate_to: localhost
+      become: false
+
+    - name: Apply CoreDNS manifest
+      kubernetes.core.k8s:
+        src: '{{ temp_manifest_dir.path }}/coredns.yaml'
+        state: present
+        wait: yes
+        wait_timeout: 180
+
+- name: Deploy metrics-server if not enabled by default
+  when: "'metrics-server' not in k3s_enable"
+  block:
+    - name: Add metrics-server Helm repo
+      kubernetes.core.helm_repository:
+        name: metrics-server
+        repo_url: https://kubernetes-sigs.github.io/metrics-server/
+
+    - name: Install metrics-server
+      kubernetes.core.helm:
+        name: metrics-server
+        chart_ref: metrics-server/metrics-server
+        release_namespace: kube-system
+        values:
+          args:
+            - --kubelet-insecure-tls
+            - --kubelet-preferred-address-types=InternalIP
+
+- name: Install cert-manager
+  kubernetes.core.helm:
+    name: cert-manager
+    chart_ref: jetstack/cert-manager
+    release_namespace: cert-manager
+    create_namespace: true
+    values:
+      installCRDs: true
+
+- name: Wait for core components to be ready
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: '{{ item }}'
+    namespace: kube-system
+    wait: yes
+    wait_timeout: 180
+    wait_condition:
+      type: Available
+      status: 'True'
+  loop:
+    - 'coredns'
+    - 'metrics-server'
+  ignore_errors: true # Some components might not exist depending on configuration

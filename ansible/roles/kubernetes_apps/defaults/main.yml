@@ -1,0 +1,56 @@
+---
+# Default variables for kubernetes_apps role
+
+# Helm configuration
+kubernetes_apps_helm_version: 'v3.14.3'
+
+# Core components
+kubernetes_apps_deploy_metrics_server: true
+kubernetes_apps_deploy_coredns: false # Already included in most K3s deployments
+kubernetes_apps_deploy_cert_manager: true # Certificate management
+
+# Storage options
+kubernetes_apps_deploy_storage: true
+kubernetes_apps_storage_class: 'local-path' # K3s includes local-path by default
+kubernetes_apps_deploy_longhorn: false # Set to true for distributed storage
+kubernetes_apps_deploy_nfs_provisioner: false
+
+# Ingress options
+kubernetes_apps_deploy_ingress: true
+kubernetes_apps_ingress_controller: 'traefik' # Changed default from nginx to traefik
+kubernetes_apps_traefik_version: '24.1.0' # Latest Traefik chart version
+kubernetes_apps_ingress_ssl: true
+
+# Load balancer
+kubernetes_apps_deploy_metallb: true # Changed to true to deploy MetalLB by default
+kubernetes_apps_metallb_version: '0.14.3'
+kubernetes_apps_metallb_ip_range: '10.0.0.200-10.0.0.250' # Define a default IP range for MetalLB
+
+# Monitoring options
+kubernetes_apps_deploy_monitoring: false
+kubernetes_apps_monitoring_stack: 'kube-prometheus' # Options: kube-prometheus, prometheus-operator
+
+# Prometheus configuration
+kubernetes_apps_prometheus_retention: '10d'
+kubernetes_apps_prometheus_storage_size: '10Gi'
+kubernetes_apps_grafana_storage_size: '5Gi'
+kubernetes_apps_alertmanager_storage_size: '2Gi'
+kubernetes_apps_grafana_admin_password: 'admin'
+kubernetes_apps_grafana_hostname: 'grafana.k3s.local'
+
+# Dashboard options
+kubernetes_apps_deploy_dashboard: false
+kubernetes_apps_dashboard_version: '2.7.0'
+
+# Additional components
+kubernetes_apps_deploy_external_dns: false
+
+# Keep backward compatibility for now
+helm_version: '{{ kubernetes_apps_helm_version }}'
+storage_class: '{{ kubernetes_apps_storage_class }}'
+deploy_monitoring: '{{ kubernetes_apps_deploy_monitoring }}'
+deploy_ingress: '{{ kubernetes_apps_deploy_ingress }}'
+deploy_metallb: '{{ kubernetes_apps_deploy_metallb }}'
+deploy_longhorn: '{{ kubernetes_apps_deploy_longhorn }}'
+ingress_controller: '{{ kubernetes_apps_ingress_controller }}'
+metallb_ip_range: '{{ kubernetes_apps_metallb_ip_range }}'

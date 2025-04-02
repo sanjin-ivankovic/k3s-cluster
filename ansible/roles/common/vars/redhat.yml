@@ -1,0 +1,21 @@
+---
+# Variables for Red Hat-based systems (RHEL, CentOS, Fedora)
+
+common_packages:
+  - curl
+  - wget
+  - vim
+  - iptables
+  - ca-certificates
+  - python3
+  - python3-pip
+  - yum-utils
+  - jq
+
+common_service_manager: systemd
+
+common_networking_service:
+  name: NetworkManager
+  enabled: true
+
+common_firewall_package: firewalld

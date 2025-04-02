@@ -1,0 +1,50 @@
+---
+# Test playbook to validate connectivity and prerequisites
+- name: Validate connectivity and environment
+  hosts: all
+  gather_facts: true
+  become: false
+  tasks:
+    - name: Gather system information
+      ansible.builtin.debug:
+        msg: '{{ ansible_hostname }} ({{ inventory_hostname }}) is running {{ ansible_distribution }} {{ ansible_distribution_version }}'
+
+    - name: Check network connectivity
+      ansible.builtin.ping:
+
+    - name: Check available disk space
+      ansible.builtin.shell: df -h / | awk 'NR==2 {print $5}'
+      register: disk_usage
+      changed_when: false
+
+    - name: Report disk usage
+      ansible.builtin.debug:
+        msg: 'Disk usage: {{ disk_usage.stdout }}'
+
+    - name: Check available memory
+      ansible.builtin.shell: free -m | awk 'NR==2 {print $7}'
+      register: free_memory
+      changed_when: false
+
+    - name: Report available memory
+      ansible.builtin.debug:
+        msg: 'Available memory: {{ free_memory.stdout }} MB'
+
+    - name: Check for required privileges
+      ansible.builtin.shell: "sudo -n true && echo 'Sudo privileges confirmed' || echo 'Warning: sudo privileges may be missing'"
+      register: sudo_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: Report sudo privileges
+      ansible.builtin.debug:
+        msg: '{{ sudo_check.stdout }}'
+
+    - name: Check if swap is enabled
+      ansible.builtin.shell: "if swapon --show | grep -q .; then echo 'enabled'; else echo 'disabled'; fi"
+      register: swap_status
+      changed_when: false
+
+    - name: Report swap status
+      ansible.builtin.debug:
+        msg: 'Swap is {{ swap_status.stdout }}'

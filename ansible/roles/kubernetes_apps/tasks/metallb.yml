@@ -1,0 +1,89 @@
+---
+# Tasks for deploying MetalLB for bare metal load balancing
+
+- name: Deploy MetalLB
+  when: deploy_metallb | bool
+  block:
+    - name: Add MetalLB helm repository
+      kubernetes.core.helm_repository:
+        name: metallb
+        repo_url: https://metallb.github.io/metallb
+      when: not ansible_check_mode
+
+    - name: Create metallb-system namespace
+      kubernetes.core.k8s:
+        name: metallb-system
+        kind: Namespace
+        state: present
+        wait: yes
+
+    - name: Install MetalLB controller
+      kubernetes.core.helm:
+        name: metallb
+        chart_ref: metallb/metallb
+        chart_version: "{{ metallb_version | default('0.14.3') }}"
+        release_namespace: metallb-system
+        wait: true
+        wait_timeout: 300
+        atomic: true
+      register: metallb_install
+      until: metallb_install is success
+      retries: 3
+      delay: 10
+
+    - name: Wait for MetalLB controller deployment to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: metallb-controller
+        namespace: metallb-system
+        wait: yes
+        wait_timeout: 180
+        wait_condition:
+          type: Available
+          status: 'True'
+      register: metallb_controller
+      until: metallb_controller.resources is defined and metallb_controller.resources | length > 0
+      retries: 10
+      delay: 10
+
+    - name: Create MetalLB IP address pool
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: default-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+              - '{{ metallb_ip_range }}' # Using default or user-provided IP range
+
+    - name: Create MetalLB L2 advertisement
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: default-l2
+            namespace: metallb-system
+          spec:
+            ipAddressPools:
+              - default-pool
+
+    - name: Verify MetalLB resources
+      kubernetes.core.k8s_info:
+        api_version: metallb.io/v1beta1
+        kind: IPAddressPool
+        name: default-pool
+        namespace: metallb-system
+      register: metallb_pool_check
+      until: metallb_pool_check.resources is defined and metallb_pool_check.resources | length > 0
+      retries: 5
+      delay: 5
+
+    - name: Report MetalLB success status
+      ansible.builtin.debug:
+        msg: 'MetalLB deployed successfully with IP range: {{ metallb_ip_range }}'
+      when: metallb_pool_check.resources is defined and metallb_pool_check.resources | length > 0

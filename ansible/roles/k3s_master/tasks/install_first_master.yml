@@ -1,0 +1,61 @@
+---
+# Install K3s on the first master node
+
+- name: Download K3s installation script
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+
+- name: Prepare K3s server install command
+  ansible.builtin.set_fact:
+    k3s_server_command: >-
+      INSTALL_K3S_VERSION={{ k3s_version }}
+      INSTALL_K3S_CHANNEL={{ k3s_channel }}
+      /tmp/k3s-install.sh server
+      --cluster-init
+      {% if k3s_disable | length > 0 %}
+      {% for component in k3s_disable %}
+      --disable={{ component }}
+      {% endfor %}
+      {% endif %}
+      {% if k3s_tls_san | default(None) %}
+      --tls-san {{ k3s_tls_san }}
+      {% endif %}
+      --node-ip {{ ansible_host | default(ansible_ssh_host) | default(inventory_hostname) }}
+      --cluster-cidr {{ k3s_cluster_cidr }}
+      --service-cidr {{ k3s_service_cidr }}
+      --cluster-dns {{ k3s_cluster_dns }}
+      --cluster-domain {{ k3s_cluster_domain }}
+      --flannel-backend={{ k3s_flannel_backend }}
+  when: not k3s_etcd_datastore | bool
+
+- name: Execute K3s installation
+  ansible.builtin.command:
+    cmd: '{{ k3s_server_command }}'
+  register: k3s_install_result
+  changed_when: k3s_install_result.rc == 0
+  failed_when: k3s_install_result.rc != 0
+
+- name: Wait for node-token to be created
+  ansible.builtin.wait_for:
+    path: '{{ k3s_server_location }}/server/node-token'
+    delay: 5
+    timeout: 60
+  when: not ansible_check_mode
+
+- name: Read node-token
+  ansible.builtin.slurp:
+    src: '{{ k3s_server_location }}/server/node-token'
+  register: node_token_b64
+  when: not ansible_check_mode
+
+- name: Set facts for secondary masters and workers (real run)
+  ansible.builtin.set_fact:
+    k3s_node_token: '{{ node_token_b64.content | b64decode | trim }}'
+  when: not ansible_check_mode
+
+- name: Set dummy token for check mode
+  ansible.builtin.set_fact:
+    k3s_node_token: 'dummy_token_for_check_mode'
+  when: ansible_check_mode

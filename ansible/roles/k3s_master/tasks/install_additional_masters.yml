@@ -1,0 +1,70 @@
+---
+# Install K3s on additional master nodes for high availability
+
+- name: Get k3s node token from the first master
+  ansible.builtin.set_fact:
+    k3s_node_token: "{{ hostvars[groups['master'][0]].k3s_node_token }}"
+
+- name: Get k3s version from the first master
+  ansible.builtin.set_fact:
+    k3s_version: "{{ hostvars[groups['master'][0]].k3s_version }}"
+
+- name: Download K3s installation script
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+
+- name: Prepare K3s server install command for HA nodes
+  ansible.builtin.set_fact:
+    k3s_server_command: >-
+      INSTALL_K3S_VERSION={{ k3s_version }}
+      INSTALL_K3S_CHANNEL={{ k3s_channel }}
+      K3S_TOKEN={{ k3s_node_token }}
+      /tmp/k3s-install.sh server
+      --server https://{{ hostvars[groups['master'][0]]['ansible_host'] | default(groups['master'][0]) }}:{{ k3s_apiserver_port }}
+      {% if k3s_disable | length > 0 %}
+      {% for component in k3s_disable %}
+      --disable={{ component }}
+      {% endfor %}
+      {% endif %}
+      {% if k3s_tls_san | default(None) %}
+      --tls-san {{ k3s_tls_san }}
+      {% endif %}
+      --node-ip {{ ansible_host | default(ansible_ssh_host) | default(inventory_hostname) }}
+      --cluster-cidr {{ k3s_cluster_cidr }}
+      --service-cidr {{ k3s_service_cidr }}
+      --cluster-dns {{ k3s_cluster_dns }}
+      --cluster-domain {{ k3s_cluster_domain }}
+      --flannel-backend={{ k3s_flannel_backend }}
+
+- name: Execute K3s installation on additional master
+  ansible.builtin.command:
+    cmd: '{{ k3s_server_command }}'
+  register: k3s_install_result
+  changed_when: k3s_install_result.rc == 0
+  failed_when: k3s_install_result.rc != 0
+
+- name: Wait for K3s to start
+  ansible.builtin.systemd:
+    name: k3s
+    state: started
+    enabled: yes
+  register: k3s_service_status
+
+- name: Wait for node to register with the cluster
+  ansible.builtin.shell: >
+    /usr/local/bin/kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get node {{ ansible_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  register: node_ready_status
+  until: node_ready_status.stdout == "True"
+  retries: 10
+  delay: 15
+  changed_when: false
+
+- name: Display node join status
+  ansible.builtin.debug:
+    msg: 'Additional master node {{ ansible_hostname }} joined the cluster successfully'
+  when: node_ready_status.stdout == "True"
+
+- name: Copy the kubeconfig file to user's home directory
+  ansible.builtin.include_tasks: kubectl_config.yml

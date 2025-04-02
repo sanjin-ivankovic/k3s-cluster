@@ -1,0 +1,47 @@
+---
+# Common role defaults
+
+# Basic packages to install on all nodes
+common_packages:
+  - curl
+  - wget
+  - vim
+  - iptables
+  - ca-certificates
+  - gnupg
+  - apt-transport-https
+  - python3
+  - python3-pip
+
+# System settings
+common_disable_swap: true
+common_configure_firewall: true
+common_reboot_after_kernel_update: true
+
+# Network settings
+common_configure_hostname: true
+common_configure_hosts: true
+common_configure_bridge_netfilter: true
+common_load_br_netfilter: true
+common_load_overlay: true
+common_persist_modules: true
+
+# Sysctl settings for Kubernetes
+common_sysctl_settings:
+  - name: net.ipv4.ip_forward
+    value: 1
+  - name: net.bridge.bridge-nf-call-iptables
+    value: 1
+  - name: net.bridge.bridge-nf-call-ip6tables
+    value: 1
+  - name: vm.swappiness
+    value: 0
+
+# Firewall ports
+common_firewall_allowed_tcp_ports:
+  - 22 # SSH
+  - 6443 # Kubernetes API
+  - 2379 # etcd client
+  - 2380 # etcd peer
+  - 10250 # Kubelet
+  - 8472 # Flannel VXLAN

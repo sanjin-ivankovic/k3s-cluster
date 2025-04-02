@@ -1,0 +1,36 @@
+---
+# Configure system parameters with sysctl for K3s
+
+- name: Load br_netfilter module
+  community.general.modprobe:
+    name: br_netfilter
+    state: present
+  when: common_load_br_netfilter | default(true) | bool
+
+- name: Load overlay module
+  community.general.modprobe:
+    name: overlay
+    state: present
+  when: common_load_overlay | default(true) | bool
+
+- name: Ensure modules load at boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules-load.d/k3s.conf
+    line: '{{ item }}'
+    create: true
+    state: present
+    mode: '0644'
+  with_items:
+    - br_netfilter
+    - overlay
+  when: common_persist_modules | default(true) | bool
+
+- name: Configure sysctl parameters
+  ansible.posix.sysctl:
+    name: '{{ item.name }}'
+    value: '{{ item.value }}'
+    sysctl_set: true
+    state: present
+    reload: true
+  with_items: '{{ common_sysctl_settings }}'
+  when: common_sysctl_settings is defined

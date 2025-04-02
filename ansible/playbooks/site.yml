@@ -1,0 +1,8 @@
+---
+# Main playbook for K3s deployment
+- name: Include K3s installation playbook
+  ansible.builtin.import_playbook: k3s_install.yml
+
+- name: Include core apps deployment
+  ansible.builtin.import_playbook: apps_deploy.yml
+  tags: [apps]

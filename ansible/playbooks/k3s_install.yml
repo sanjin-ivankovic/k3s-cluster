@@ -1,0 +1,23 @@
+---
+# Playbook to install K3s on all nodes
+
+- name: Prepare all nodes
+  hosts: k3s_cluster
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+
+- name: Install K3s masters
+  hosts: master
+  become: true
+  roles:
+    - role: k3s_master
+      tags: [k3s, master]
+
+- name: Install K3s workers
+  hosts: node
+  become: true
+  roles:
+    - role: k3s_worker
+      tags: [k3s, worker]

@@ -1,110 +1,51 @@
 ---
-# System preparation tasks in logical order
+# Common tasks for all nodes
 
-# 1. Initial system update and package installation
-- name: Update apt cache
-  ansible.builtin.apt:
+- name: Include OS-specific variables
+  ansible.builtin.include_vars: '{{ item }}'
+  with_first_found:
+    - files:
+        - '{{ ansible_distribution | lower }}.yml'
+        - '{{ ansible_os_family | lower }}.yml'
+        - 'default.yml'
+      paths:
+        - '{{ role_path }}/vars'
+  tags: [always]
+
+- name: Update package cache
+  ansible.builtin.package:
     update_cache: yes
-    cache_valid_time: 3600
+  tags: [packages]
 
-- name: Install prerequisite packages
-  ansible.builtin.apt:
-    name:
-      - curl
-      - wget
-      - apt-transport-https
-      - ca-certificates
-      - net-tools
-      - iproute2
-      - lsof
-      - python3-pip
-      - nfs-common
-      - bash-completion
-      - jq
+- name: Install basic packages
+  ansible.builtin.package:
+    name: '{{ common_packages }}'
+    state: present
+  tags: [packages]
+
+- name: Ensure pip is installed
+  ansible.builtin.package:
+    name: python3-pip
     state: present
 
-# 2. Hostname and network configuration
-- name: Set system hostname
-  ansible.builtin.hostname:
-    name: '{{ inventory_hostname }}'
-  when: inventory_hostname != ansible_hostname
-
-- name: Update /etc/hosts with cluster nodes
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
-    state: present
-  loop: "{{ groups['k3s_cluster'] }}"
-  when: hostvars[item]['ansible_host'] is defined
-
-# 3. Disable swap (Kubernetes requirement)
-- name: Disable swap immediately
-  ansible.builtin.command: swapoff -a
-  when: ansible_swaptotal_mb > 0
-  changed_when: true
-
-- name: Remove swap entries from /etc/fstab
-  ansible.builtin.replace:
-    path: /etc/fstab
-    regexp: '^([^#].*swap.*)$'
-    replace: '# \1'
-    backup: yes
-
-# 4. Kernel module and sysctl configurations
-- name: Ensure br_netfilter module is loaded
-  ansible.builtin.modprobe:
-    name: br_netfilter
+- name: Install the kubernetes Python library
+  ansible.builtin.pip:
+    name: kubernetes
     state: present
 
-- name: Ensure overlay module is loaded
-  ansible.builtin.modprobe:
-    name: overlay
-    state: present
+- name: Disable swap
+  ansible.builtin.include_tasks: disable_swap.yml
+  tags: [system]
 
-- name: Persist kernel modules on boot
-  ansible.builtin.copy:
-    dest: /etc/modules-load.d/k3s.conf
-    content: |
-      br_netfilter
-      overlay
-    mode: '0644'
+- name: Configure sysctl parameters
+  ansible.builtin.include_tasks: sysctl.yml
+  tags: [system]
 
-- name: Set sysctl parameters for Kubernetes networking
-  ansible.builtin.sysctl:
-    name: '{{ item.name }}'
-    value: '{{ item.value }}'
-    state: present
-    reload: yes
-  loop:
-    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
-    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
-    - { name: 'net.ipv4.ip_forward', value: '1' }
+- name: Configure host networking
+  ansible.builtin.include_tasks: networking.yml
+  tags: [networking]
 
-# 5. Set timezone to ensure consistent timing across cluster
-- name: Set timezone
-  community.general.timezone:
-    name: "{{ timezone | default('UTC') }}"
-
-# 6. Set up bash completion for kubectl (will be used after k3s installation)
-- name: Set up kubectl bash completion
-  ansible.builtin.lineinfile:
-    path: /home/{{ ansible_user }}/.bashrc
-    line: 'source <(kubectl completion bash)'
-    state: present
-    create: yes
-  become: false
-
-# 7. Reboot if necessary (should be the last task)
-- name: Check if reboot is required
-  ansible.builtin.stat:
-    path: /var/run/reboot-required
-  register: reboot_required
-
-- name: Reboot if required
-  ansible.builtin.reboot:
-    msg: 'Rebooting due to system updates'
-    connect_timeout: 5
-    reboot_timeout: 300
-    pre_reboot_delay: 0
-    post_reboot_delay: 30
-  when: reboot_required.stat.exists
+- name: Configure firewall
+  ansible.builtin.include_tasks: firewall.yml
+  tags: [firewall]
+  when: common_configure_firewall | default(true) | bool

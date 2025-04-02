@@ -1,0 +1,20 @@
+---
+# Default variables used when OS-specific file is not found
+
+common_packages:
+  - curl
+  - wget
+  - vim
+  - iptables
+  - ca-certificates
+  - python3
+  - python3-pip
+  - jq
+
+common_service_manager: systemd
+
+common_networking_service:
+  name: network
+  enabled: true
+
+common_firewall_package: firewalld

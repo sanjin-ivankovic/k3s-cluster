@@ -1,0 +1,13 @@
+---
+# Default variables for the k3s_master role
+# These will be used if not defined elsewhere
+
+# Additional server arguments
+k3s_server_args:
+  - '--disable=traefik'
+  - '--disable=servicelb'
+  - '--disable=metrics-server'
+  - '--kube-apiserver-arg=feature-gates=MixedProtocolLBService=true'
+
+# Default MetalLB addresses that can be overridden in group_vars
+metallb_addresses: '10.0.0.200-10.0.0.220'

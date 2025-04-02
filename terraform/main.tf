@@ -1,46 +1,5 @@
 # Main Terraform configuration for K3s home lab cluster
 
-# Provider configuration
-terraform {
-  required_providers {
-    proxmox = {
-      source  = "telmate/proxmox"
-      version = ">= 2.9.0"
-    }
-  }
-
-  # Uncomment to enable remote state
-  # backend "s3" {
-  #   endpoint = "https://minio.local"
-  #   bucket   = "terraform-state"
-  #   key      = "k3s-cluster/terraform.tfstate"
-  #   region   = "us-east-1"  # Can be any value for MinIO
-  #   skip_credentials_validation = true
-  #   skip_region_validation      = true
-  #   skip_requesting_account_id  = true
-  #   skip_s3_checksum            = true
-  #   force_path_style            = true
-  # }
-}
-
-provider "proxmox" {
-  pm_api_url      = var.proxmox_api_url
-  pm_user         = var.proxmox_user
-  pm_password     = var.proxmox_password
-  pm_tls_insecure = true # Consider changing to false for production and configuring proper certificates
-
-  # Add timeout and error handling for API calls
-  pm_timeout    = 600
-  pm_parallel   = 4
-  pm_log_enable = false
-  pm_log_file   = "terraform-plugin-proxmox.log"
-  pm_debug      = false
-  pm_log_levels = {
-    _default    = "debug"
-    _capturelog = ""
-  }
-}
-
 # Local variables
 locals {
   vm_settings = merge(flatten([for i in fileset(".", "vars/nodes.yaml") : yamldecode(file(i))["nodes"]])...)
@@ -51,21 +10,21 @@ locals {
     name if(lookup(node, "disk_size", null) != null &&
   !can(regex(var.disk_size_validation, node.disk_size)))]
 
-  # Define validation checks
-  invalid_ips  = []
-  invalid_macs = []
+  # Use existing validation checks from data_validation.tf
+  # Invalid IPs and MACs are already defined there
 
-  # Add disk_size validation to the validation_checks
-  validation_checks = concat(
-    local.invalid_ips,
-    local.invalid_macs,
-    local.invalid_disk_sizes
-  )
+  # NOTE: Removed duplicate validation_checks definition since it's already defined in data_validation.tf
+  # The validation_checks in data_validation.tf already includes invalid_disk_sizes
+
+  # Use existing SSH key - NEVER generate a new one
+  ssh_key_path   = pathexpand("~/.ssh/${var.ssh_key_name}_id_ed25519")
+  ssh_public_key = file("${local.ssh_key_path}.pub") # Always read from the existing key
 
   common_config = {
     target_node       = var.proxmox_target_node
     storage_type      = var.vm_storage_type
     default_disk_size = var.vm_disk_size
+    default_image     = var.vm_image # Using the specified ubuntu-cloud image
     cicustom          = "vendor=local:snippets/qemu-guest-agent.yaml"
     network = {
       dns     = local.network.dns
@@ -73,9 +32,30 @@ locals {
       vlan    = local.network.vlan
       gateway = local.network.gateway
     }
-    vm_user        = var.vm_user
-    ssh_public_key = file(var.ssh_key_file) # SSH public key file
+    vm_user        = var.vm_user # Using sanjin as specified
+    ssh_public_key = local.ssh_public_key
   }
+}
+
+# We'll keep this resource but set count to 0 since we're always using an existing key
+resource "tls_private_key" "ssh_key" {
+  count     = 0 # Never generate a new key
+  algorithm = "ED25519"
+}
+
+# Similarly, we'll disable these resources by setting count to 0
+resource "local_file" "private_key" {
+  count           = 0 # Never save a generated key
+  content         = tls_private_key.ssh_key[0].private_key_pem
+  filename        = local.ssh_key_path
+  file_permission = "0600"
+}
+
+resource "local_file" "public_key" {
+  count           = 0 # Never save a generated key
+  content         = tls_private_key.ssh_key[0].public_key_openssh
+  filename        = "${local.ssh_key_path}.pub"
+  file_permission = "0644"
 }
 
 module "k3s_nodes" {
@@ -92,7 +72,7 @@ module "k3s_nodes" {
     vmid      = each.value.vmid
     ip        = each.value.ip
     type      = each.value.type
-    os        = each.value.os
+    os        = lookup(each.value, "os", var.vm_image) # Use node-specific OS or default to vm_image
     cores     = each.value.cores
     ram       = each.value.ram
     macaddr   = each.value.macaddr
@@ -102,6 +82,7 @@ module "k3s_nodes" {
   common_config = local.common_config
 }
 
+# Generate a single Ansible inventory
 resource "local_file" "ansible_inventory" {
   content = templatefile("templates/hosts.tmpl",
     {
@@ -124,27 +105,29 @@ resource "local_file" "ansible_inventory" {
     command = "mkdir -p inventory"
   }
 
-  # Create a symlink to ../ansible/inventory/hosts.ini
+  # Create a symlink to ansible/inventory/hosts.ini with absolute paths for reliability
   provisioner "local-exec" {
-    command = "ln -sf ../../terraform/inventory/hosts.ini ../ansible/inventory/hosts.ini"
+    command = "mkdir -p ../ansible/inventory && ln -sf \"$(pwd)/inventory/hosts.ini\" \"$(pwd)/../ansible/inventory/hosts.ini\""
   }
 }
 
 # Prepare VMs for Ansible (validate connectivity)
 module "vm_prep" {
-  source = "./modules/kubernetes"
+  source = "./modules/vm_prep"
 
-  master_ips = [for name, node in local.vm_settings : node.ip if node.type == "server"]
+  master_ips = [for name, node in local.vm_settings : node.ip if node.type == "server" || node.type == "master"]
   worker_ips = [for name, node in local.vm_settings : node.ip if node.type == "worker"]
 
   user                 = var.vm_user
-  ssh_private_key_path = var.ssh_key_file
+  ssh_private_key_path = pathexpand(replace(var.ssh_key_file, ".pub", "")) # Get the private key path from the public key path
   cluster_name         = var.cluster_name
 
   # Only check connectivity without installing anything
   check_connectivity    = var.run_validation
   generate_ansible_vars = true
-  inventory_path        = "inventory"
 
-  depends_on = [module.k3s_nodes]
+  # Use the inventory file we just created so we don't generate a duplicate
+  inventory_file = "${path.root}/inventory/hosts.ini"
+
+  depends_on = [module.k3s_nodes, local_file.ansible_inventory] # Added dependency on the inventory file
 }

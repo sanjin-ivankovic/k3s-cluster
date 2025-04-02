@@ -16,13 +16,16 @@ locals {
       role = "worker"
     }]
   }
+
+  # Calculate the correct directory path based on inventory_file
+  vars_dir = var.inventory_file == null ? "${var.inventory_path}/group_vars" : "${dirname(var.inventory_file)}/group_vars"
 }
 
 # Check connectivity to nodes
 resource "null_resource" "check_connectivity" {
   count = var.check_connectivity ? length(concat(var.master_ips, var.worker_ips)) : 0
 
-  # Use direct expressions for connection parameters rather than a nested locals block
+  # Use direct expressions for connection parameters
   connection {
     type        = "ssh"
     host        = count.index < length(var.master_ips) ? var.master_ips[count.index] : var.worker_ips[count.index - length(var.master_ips)]
@@ -46,8 +49,11 @@ resource "null_resource" "check_connectivity" {
   }
 }
 
-# Generate Ansible inventory
+# Generate Ansible inventory only if inventory_file is null
 resource "local_file" "ansible_inventory" {
+  # Only create this file if inventory_file is not specified
+  count = var.inventory_file == null ? 1 : 0
+
   content = templatefile("${path.module}/templates/inventory.tmpl", {
     master_nodes = local.nodes.masters
     worker_nodes = local.nodes.workers
@@ -76,10 +82,11 @@ resource "local_file" "ansible_vars" {
     enable_ha    = length(var.master_ips) > 1
   })
 
-  filename = "${var.inventory_path}/group_vars/all.yml"
+  # Use the local.vars_dir variable to specify the output directory
+  filename = "${local.vars_dir}/all.yml"
 
   # Ensure directory exists
   provisioner "local-exec" {
-    command = "mkdir -p ${var.inventory_path}/group_vars"
+    command = "mkdir -p ${local.vars_dir}"
   }
 }

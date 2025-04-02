@@ -1,0 +1,40 @@
+---
+# Global variables for K3s cluster
+
+# K3s Version
+k3s_version: v1.31.7+k3s1
+k3s_channel: stable
+
+# Networking
+k3s_apiserver_host: "{{ hostvars[groups['master'][0]].ansible_host | default(groups['master'][0]) }}"
+k3s_apiserver_port: 6443
+k3s_flannel_backend: 'vxlan' # Options: vxlan, wireguard, host-gw, none
+k3s_cluster_cidr: '10.42.0.0/16'
+k3s_service_cidr: '10.43.0.0/16'
+k3s_cluster_dns: '10.43.0.10'
+k3s_cluster_domain: 'cluster.local'
+
+# Control plane configuration
+k3s_server_location: /var/lib/rancher/k3s
+k3s_etcd_datastore: false # Use embedded SQLite by default
+k3s_ha_mode: false # High Availability mode
+
+# Default components to enable/disable
+k3s_disable:
+  - traefik # We'll install our own ingress controller
+  - servicelb # We'll use MetalLB instead
+
+k3s_enable:
+  - metrics-server
+
+# System settings
+k3s_systemd_dir: /etc/systemd/system
+k3s_use_experimental: false
+k3s_use_unsupported_config: false
+
+# Default container runtime
+k3s_container_runtime: containerd
+
+# Node settings
+k3s_node_labels: {}
+k3s_node_taints: {}
